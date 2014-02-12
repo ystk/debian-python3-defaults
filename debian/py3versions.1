@@ -21,14 +21,14 @@ Show the supported python3 versions.
 .TP
 .I -r, --requested [<version string>|<control file>]
 Reads the value of the
-.B XS-Python-Version
+.B X-Python3-Version
 field in the source section of a control file and shows all matching
 python3 versions. The parameter is interpreted as a version string, if
-it is not the name of a file. If the XS-Python-Version field is
+it is not the name of a file. If the X-Python3-Version field is
 missing, it will fall back to list the supported Python3
 versions after checking debian/control. Versions less than 3 are
 ignored. The keyword all is ignored because it covers all Python2
-verions.  The former keyword current is not supported at all in
+versions.  The former keyword current is not supported at all in
 Python3.
 .TP
 .I -i, --installed

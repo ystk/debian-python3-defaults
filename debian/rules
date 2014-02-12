@@ -15,12 +15,12 @@ PKGVERSION := $(word 2, $(changelog_values))
 
 distribution := $(shell lsb_release -is)
 
-export VER=3.1
-export NVER=3.2
-export PVER=python3.1
+export VER=3.2
+export NVER=3.3
+export PVER=python3.2
 
 PREVVER	:= $(shell awk '/^python/ && NR > 1 {print substr($$2,2,length($$2)-2); exit}' debian/changelog)
-PREVVER := 3.1.3
+PREVVER := 3.2.3
 
 PWD		:= $(shell pwd)
 
@@ -35,6 +35,9 @@ with_doc	= yes
 ifneq ($(with_doc),yes)
   NOPKGS	= -Npython-doc
 endif
+
+build-arch: build
+build-indep: build
 
 build: stamp-build
 stamp-build:
@@ -166,9 +169,12 @@ binary-indep: build install stamp-doc
 	: # provide the python and python.1 defaults
 	mkdir -p debian/python3-minimal/usr/bin
 	ln -sf python$(VER) debian/python3-minimal/usr/bin/python3
+	ln -sf python$(VER)mu debian/python3-minimal/usr/bin/python3mu
 	mkdir -p debian/python3-minimal/usr/share/man/man1
 	ln -sf python$(VER).1.gz \
 		debian/python3-minimal/usr/share/man/man1/python3.1.gz
+	ln -sf python$(VER)mu.1.gz \
+		debian/python3-minimal/usr/share/man/man1/python3mu.1.gz
 
 	: # 
 	mkdir -p debian/python3-minimal/usr/share/python3
@@ -179,7 +185,7 @@ binary-indep: build install stamp-doc
 		debian/python3-minimal/usr/share/python3/
 	install -m 644 debian/py3versions.1 \
 		debian/python3-minimal/usr/share/man/man1/
-	dh_link -ppython3 /usr/share/python3/py3versions.py /usr/bin/py3versions
+	dh_link -ppython3-minimal /usr/share/python3/py3versions.py /usr/bin/py3versions
 
 #	mkdir debian/python-minimal/usr/share/python-central
 #	cp -p debian/python.pycentral debian/python-minimal/usr/share/python-central/
@@ -235,7 +241,13 @@ endif
 
 	: # provide the python3-config default
 	mkdir -p debian/python3-dev/usr/bin
+	ln -sf python$(VER)mu-config debian/python3-dev/usr/bin/python3mu-config
+	mkdir -p debian/python3-dev/usr/share/man/man1
+	ln -sf python$(VER)mu-config.1.gz \
+		debian/python3-dev/usr/share/man/man1/python3mu-config.1.gz
 	ln -sf python$(VER)-config debian/python3-dev/usr/bin/python3-config
+	ln -sf python$(VER)-config.1.gz \
+		debian/python3-dev/usr/share/man/man1/python3-config.1.gz
 
 	: # provide pkgconfig defaults
 	mkdir -p debian/python3-dev/usr/lib/pkgconfig
@@ -245,11 +257,19 @@ endif
 
 	: # provide the python-dbg and python-dbg.1 defaults
 	mkdir -p debian/python3-dbg/usr/bin
+	ln -sf python$(VER)dmu debian/python3-dbg/usr/bin/python3dmu
+	ln -sf python$(VER)dmu-config debian/python3-dbg/usr/bin/python3dmu-config
 	ln -sf python$(VER)-dbg debian/python3-dbg/usr/bin/python3-dbg
 	ln -sf python$(VER)-dbg-config debian/python3-dbg/usr/bin/python3-dbg-config
 	mkdir -p debian/python3-dbg/usr/share/man/man1
+	ln -sf python$(VER)dmu.1.gz \
+		debian/python3-dbg/usr/share/man/man1/python3dmu.1.gz
+	ln -sf python$(VER)dmu-config.1.gz \
+		debian/python3-dbg/usr/share/man/man1/python3dmu-config.1.gz
 	ln -sf python$(VER)-dbg.1.gz \
 		debian/python3-dbg/usr/share/man/man1/python3-dbg.1.gz
+	ln -sf python$(VER)-dbg-config.1.gz \
+		debian/python3-dbg/usr/share/man/man1/python3-dbg-config.1.gz
 	mkdir -p debian/python3-dbg/usr/share/doc/python3
 	ln -sf ../python$(VER)/SpecialBuilds.txt.gz \
 		debian/python3-dbg/usr/share/doc/python3/SpecialBuilds.txt.gz
@@ -268,7 +288,7 @@ endif
 	install -m 644 debian/idle.1 debian/idle3/usr/share/man/man1/idle3.1
 
 	mkdir -p debian/idle3/usr/share/pixmaps
-	ln -sf python3.xpm debian/python3/usr/share/pixmaps/idle3.xpm
+	ln -sf python3.xpm debian/idle3/usr/share/pixmaps/idle3.xpm
 
 	mkdir -p debian/idle3/usr/share/applications
 	cp -p debian/idle3.desktop debian/idle3/usr/share/applications/

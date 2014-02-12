@@ -1,4 +1,4 @@
-# Copyright © 2010 Piotr Ożarowski <piotr@debian.org>
+# Copyright © 2010-2012 Piotr Ożarowski <piotr@debian.org>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 PUBLIC_DIR_RE = re.compile(r'.*?/usr/lib/python(\d(?:.\d+)?)/(site|dist)-packages')
 PYDIST_RE = re.compile(r"""
-    (?P<name>[A-Za-z][A-Za-z0-9_.]*)             # Python distribution name
+    (?P<name>[A-Za-z][A-Za-z0-9_.\-]*)             # Python distribution name
     \s*
     (?P<vrange>(?:-?\d\.\d+(?:-(?:\d\.\d+)?)?)?) # version range
     \s*
@@ -40,7 +40,7 @@ PYDIST_RE = re.compile(r"""
         ;\s*
         (?P<standard>PEP386)?                    # PEP-386 mode
         \s*
-        (?P<rules>s/.*)?                         # translator rules
+        (?P<rules>(?:s|tr|y).*)?                 # translator rules
     )?
     """, re.VERBOSE)
 REQUIRES_RE = re.compile(r'''
@@ -56,7 +56,7 @@ REQUIRES_RE = re.compile(r'''
     ''', re.VERBOSE)
 
 
-def validate(fpath, exit_on_error=False):
+def validate(fpath):
     """Check if pydist file looks good."""
     with open(fpath) as fp:
         for line in fp:
@@ -66,8 +66,6 @@ def validate(fpath, exit_on_error=False):
             if not PYDIST_RE.match(line):
                 log.error('invalid pydist data in file %s: %s', \
                           fpath.rsplit('/', 1)[-1], line)
-                if exit_on_error:
-                    exit(3)
                 return False
     return True
 
@@ -94,8 +92,7 @@ def load(dname='/usr/share/python3/dist/', fname='debian/py3dist-overrides',
                     continue
                 dist = PYDIST_RE.search(line)
                 if not dist:
-                    log.error('%s file has a broken line: %s', fpath, line)
-                    exit(9)
+                    raise Exception('invalid pydist line: %s (in %s)' % (line, fpath))
                 dist = dist.groupdict()
                 name = safe_name(dist['name'])
                 dist['versions'] = get_requested_versions(dist['vrange'])
@@ -115,18 +112,18 @@ def guess_dependency(req, version=None):
         version = getver(version)
 
     # some upstreams have weird ideas for distribution name...
-    name, rest = re.compile('([^><= ]+)(.*)').match(req).groups()
+    name, rest = re.compile('([^><= \[]+)(.*)').match(req).groups()
     req = safe_name(name) + rest
 
     data = load()
-    req_dict = REQUIRES_RE.match(req)
-    if not req_dict:
-        log.error('requirement is not valid: %s', req)
+    req_d = REQUIRES_RE.match(req)
+    if not req_d:
         log.info('please ask dh_python3 author to fix REQUIRES_RE '
                  'or your upstream author to fix requires.txt')
-        exit(8)
-    req_dict = req_dict.groupdict()
-    details = data.get(req_dict['name'].lower())
+        raise Exception('requirement is not valid: %s' % req)
+    req_d = req_d.groupdict()
+    name = req_d['name']
+    details = data.get(name.lower())
     if details:
         for item in details:
             if version and version not in item.get('versions', version):
@@ -136,23 +133,22 @@ def guess_dependency(req, version=None):
             if not item['dependency']:
                 return  # this requirement should be ignored
             if item['dependency'].endswith(')'):
-                # no need to translate versions if version is hardcoded in Debian
-                # dependency
+                # no need to translate versions if version is hardcoded in
+                # Debian dependency
                 return item['dependency']
-            if req_dict['version']:
-                # FIXME: translate it (rules, versions)
-                return item['dependency']
+            if req_d['version'] and (item['standard'] or item['rules']) and\
+               req_d['operator'] not in (None, '=='):
+                v = _translate(req_d['version'], item['rules'], item['standard'])
+                return "%s (%s %s)" % (item['dependency'], req_d['operator'], v)
             else:
                 return item['dependency']
 
     # try dpkg -S
-
-    query = "'%s-?*\.egg-info'" % name  # TODO: .dist-info
-    query = "%s | grep '/python3" % query
+    query = "'*python3/*/%s-?*\.egg-info'" % ci_regexp(safe_name(name))  # TODO: .dist-info
 
     log.debug("invoking dpkg -S %s", query)
     process = Popen("/usr/bin/dpkg -S %s" % query, \
-                    shell=True, stdout=PIPE)
+                    shell=True, stdout=PIPE, stderr=PIPE)
     stdout, stderr = process.communicate()
     if process.returncode == 0:
         result = set()
@@ -165,13 +161,15 @@ def guess_dependency(req, version=None):
             log.error('more than one package name found for %s dist', name)
         else:
             return result.pop()
+    else:
+        log.debug('dpkg -S did not find package for %s: %s', name, stderr)
 
     # fall back to python-distname
     pname = sensible_pname(name)
-    log.warn('Cannot find package that provides %s. '
+    log.warn('Cannot find installed package that provides %s. '
              'Using %s as package name. Please add "%s correct_package_name" '
-             'line to debian/pydist-overrides to override it.',
-             name, pname, name)
+             'line to debian/py3dist-overrides to override it if this is incorrect.',
+             name, pname, safe_name(name))
     return pname
 
 
@@ -207,3 +205,58 @@ def sensible_pname(egg_name):
     if egg_name.startswith('python-'):
         egg_name = egg_name[7:]
     return "python3-%s" % egg_name.lower()
+
+
+def ci_regexp(name):
+    """Return case insensitive dpkg -S regexp."""
+    return ''.join("[%s%s]" % (i.upper(), i) if i.isalpha() else i for i in name.lower())
+
+
+PRE_VER_RE = re.compile(r'[-.]?(alpha|beta|rc|dev|a|b|c)')
+GROUP_RE = re.compile(r'\$(\d+)')
+
+
+def _pl2py(pattern):
+    """Convert Perl RE patterns used in uscan to Python's
+
+    >>> print(_pl2py('foo$3'))
+    foo\g<3>
+    """
+    return GROUP_RE.sub(r'\\g<\1>', pattern)
+
+
+def _translate(version, rules, standard):
+    """Translate Python version into Debian one.
+
+    >>> _translate('1.C2betac', ['s/c//gi'], None)
+    '1.2beta'
+    >>> _translate('5-fooa1.2beta3-fooD',
+    ...     ['s/^/1:/', 's/-foo//g', 's:([A-Z]):+$1:'], 'PEP386')
+    '1:5~a1.2~beta3+D'
+    >>> _translate('x.y.x.z', ['tr/xy/ab/', 'y,z,Z,'], None)
+    'a.b.a.Z'
+    """
+    for rule in rules:
+        # uscan supports s, tr and y operations
+        if rule.startswith(('tr', 'y')):
+            # Note: no support for escaped separator in the pattern
+            pos = 1 if rule.startswith('y') else 2
+            tmp = rule[pos + 1:].split(rule[pos])
+            version = version.translate(str.maketrans(tmp[0], tmp[1]))
+        elif rule.startswith('s'):
+            # uscan supports: g, u and x flags
+            tmp = rule[2:].split(rule[1])
+            pattern = re.compile(tmp[0])
+            count = 1
+            if tmp[2:]:
+                flags = tmp[2]
+                if 'g' in flags:
+                    count = 0
+                if 'i' in flags:
+                    pattern = re.compile(tmp[0], re.I)
+            version = pattern.sub(_pl2py(tmp[1]), version, count)
+        else:
+            log.warn('unknown rule ignored: %s', rule)
+    if standard == 'PEP386':
+        version = PRE_VER_RE.sub('~\g<1>', version)
+    return version

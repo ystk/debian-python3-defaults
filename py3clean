@@ -1,7 +1,7 @@
 #! /usr/bin/python3
 # vim: et ts=4 sw=4
 
-# Copyright © 2010 Piotr Ożarowski <piotr@debian.org>
+# Copyright © 2010-2012 Piotr Ożarowski <piotr@debian.org>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -24,12 +24,14 @@
 import logging
 import optparse
 import sys
+# glob1() is not in the public documentation, UTSL.
 from glob import glob1
-from os import environ, remove, rmdir, walk
-from os.path import dirname, exists, isdir, isfile, join
-from subprocess import Popen, PIPE
+from os import environ, remove, rmdir
+from os.path import dirname, basename, exists, join, splitext
 sys.path.insert(1, '/usr/share/python3/')
+from debpython import files as dpf
 from debpython.version import SUPPORTED, getver, vrepr
+from debpython.tools import get_magic_tags_map
 
 
 # initialize script
@@ -47,83 +49,53 @@ Examples:
 """
 
 
-def get_magic_tags_map(version=None):
-    """Return Python magic tags for installed Python versions."""
-
-    to_check = set(SUPPORTED) - {(3, 1)}
-    if version and version != (3, 1):
-        to_check.add(version)
-    cmd = ''
-    for v in ('.'.join(str(j) for j in i) for i in to_check):
-        if not exists("/usr/bin/python%s" % v):
-            log.debug("version %s not installed, skipping", v)
-            continue
-
-        cmd += "/usr/bin/python%s -c 'import imp; print(\"%s_\"" % (v, v) + \
-               "+imp.get_tag())' && "
-
-    result = {}
-    if not cmd:
-        return result
-    cmd = cmd[:-3]  # cut last '&& '
-    log.debug("invoking %s", cmd)
-    p = Popen(cmd, shell=True, stdout=PIPE, stderr=PIPE)
-    if p.wait() != 0:
-        log.debug(p.stderr.read())
-        log.error('cannot get magic tags')
-        exit(3)
-    else:
-        for line in p.stdout:
-            version, magic_tag = str(line, 'utf-8').split('_', 2)
-            version = getver(version)
-            # Python 3.X returns bytes
-            magic_tag = magic_tag.strip().lstrip("b'").rstrip("'")
-            result.setdefault(version, set()).add(magic_tag)
-    log.debug('magic tags map: %s', result)
-    return result
-
-
-def get_magic_tags_to_remove(version):
-    """Returns set of numbers or True if all of them should be removed."""
-    map_ = get_magic_tags_map(version)
+def get_magic_tag_to_remove(version):
+    """Returns magic tag or True if all of them should be removed."""
+    map_ = get_magic_tags_map(set(SUPPORTED).union(set([version])))
     if version != (3, 1) and version not in map_:
         log.error('magic tag for %s not recognized', vrepr(version))
         exit(4)
 
-    result = set(map_[version])  # make a copy
-    for v, numbers in map_.items():
+    tag = map_[version]
+    # skip shared tags
+    for v, t in map_.items():
         if v == version:
             continue
-        result = result.difference(numbers)
+        if t == tag:
+            log.info('magic tag(s) used by python%s. Nothing to remove.',
+                    vrepr(v))
+            exit(0)
 
-    if not result:
-        log.info('magic tag(s) used by another installed\
-Python version. Nothing to remove.')
-        exit(0)
-
-    log.debug('magic tags to remove: %s', result)
-    return result
+    log.debug('magic tags to remove: %s', tag)
+    return tag
 
 
-def destroyer(magic_tags=None):  # ;-)
+def destroyer(magic_tag=None):  # ;-)
     """Remove every .py[co] file associated to received .py file.
 
-    :param magic_tags: if None, removes __pycache__ directories,
-        if False, removes python3.1's .pyc files only,
-        otherwise removes set of magic tags from __pycache__ directory
-    :type magic_tags: None or False or set"""
-    if magic_tags is None:
+    :param magic_tag:
+        * If None, removes all associated .py[co] files from __pycache__
+          directory.  If the resulting directory is empty, and is not a system
+          site package, then the directory is also removed.
+        * If False, removes python3.1's .pyc files only
+        * Otherwise removes given magic tag from __pycache__ directory.  If
+          the resulting directory is empty, and is not a system site package,
+          then the directory is also removed.
+    :type magic_tag: None or False or str
+    """
+    if magic_tag is None:
 
-        # remove all files in __pycache__ directory
+        # remove compiled files in __pycache__ directory
         def find_files_to_remove(pyfile):
-            directory = "%s/__pycache__/" % dirname(pyfile)
-            for fn in glob1(directory, '*'):
+            directory = join(dirname(pyfile), '__pycache__')
+            fnames = "%s.*" % splitext(basename(pyfile))[0]
+            for fn in glob1(directory, fnames):
                 yield join(directory, fn)
             # remove "classic" .pyc files as well
             for filename in ("%sc" % pyfile, "%so" % pyfile):
                 if exists(filename):
                     yield filename
-    elif magic_tags is False:
+    elif magic_tag is False:
 
         # remove 3.1's .pyc files only
         def find_files_to_remove(pyfile):
@@ -134,10 +106,10 @@ def destroyer(magic_tags=None):  # ;-)
 
         # remove .pyc files for no longer needed magic tags
         def find_files_to_remove(pyfile):
-            directory = "%s/__pycache__/" % dirname(pyfile)
-            for i in magic_tags:
-                for fn in glob1(directory, "*.%s.py[co]" % i):
-                    yield join(directory, fn)
+            directory = join(dirname(pyfile), '__pycache__')
+            fname = splitext(basename(pyfile))[0]
+            for fn in glob1(directory, "%s.%s.py[co]" % (fname, magic_tag)):
+                yield join(directory, fn)
 
     def myremove(fname):
         remove(fname)
@@ -146,7 +118,7 @@ def destroyer(magic_tags=None):  # ;-)
         if directory.endswith('__pycache__'):
             try:
                 rmdir(directory)
-            except:
+            except Exception:
                 pass
 
     counter = 0
@@ -164,35 +136,9 @@ def destroyer(magic_tags=None):  # ;-)
         log.info("removed files: %s", counter)
 
 
-def get_files(items):
-    for item in items:
-        if isfile(item) and item.endswith('.py'):
-            yield item
-        elif isdir(item):
-            for root, dirs, files in walk(item):
-                #for fn in glob1(root, '*.py'):
-                #    yield join(root, fn)
-                for fn in files:
-                    if fn.endswith('.py'):
-                        yield join(root, fn)
-
-
-def get_package_files(package_name):
-    process = Popen("/usr/bin/dpkg -L %s" % package_name,\
-                    shell=True, stdout=PIPE)
-    stdout, stderr = process.communicate()
-    if process.returncode != 0:
-        log.error('cannot get content of %s', package_name)
-        exit(2)
-    stdout = str(stdout, 'utf-8')
-    for line in stdout.split('\n'):
-        if line.endswith('.py'):
-            yield line
-
-
 def main():
-    usage = '%prog [-V VERSION] [-p PACKAGE | DIR_OR_FILE]'
-    parser = optparse.OptionParser(usage, version='%prog 0.3')
+    usage = '%prog [-V VERSION] [-p PACKAGE] [DIR_OR_FILE]'
+    parser = optparse.OptionParser(usage, version='%prog 1.0')
     parser.add_option('-v', '--verbose', action='store_true', dest='verbose',
         help='turn verbose more one')
     parser.add_option('-q', '--quiet', action='store_false', dest='verbose',
@@ -214,29 +160,32 @@ def main():
 
     if options.version:
         if options.version.endswith('3.1'):  # 3.1, -3.1
-            magic_tags = False
+            magic_tag = False
         else:
-            magic_tags = get_magic_tags_to_remove(getver(options.version))
-        d = destroyer(magic_tags)
+            magic_tag = get_magic_tag_to_remove(getver(options.version))
+        d = destroyer(magic_tag)
     else:
         d = destroyer()  # remove everything
     next(d)  # initialize coroutine
 
-    if options.package and args:
-        parser.error('only one action is allowed at the same time ('
-                     'cleaning directory or a package)')
+    if not options.package and not args:
+        parser.print_usage()
+        exit(1)
 
     if options.package:
         log.info('cleaning package %s', options.package)
-        for filename in get_package_files(options.package):
-            d.send(filename)
-    elif args:
+        pfiles = set(dpf.from_package(options.package))
+
+    if args:
         log.info('cleaning directories: %s', args)
-        for filename in get_files(args):
-            d.send(filename)
+        files = set(dpf.from_directory(args))
+        if options.package:
+            files = files & pfiles
     else:
-        parser.print_usage()
-        exit(1)
+        files = pfiles
+
+    for filename in files:
+        d.send(filename)
 
 if __name__ == '__main__':
     main()

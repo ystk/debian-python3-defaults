@@ -36,7 +36,7 @@ if [ -x /usr/bin/python3.2 ]; then
 	# remove __pycache__/*.pyc files
 	../py3clean t1/lib/ -vV 3.2
 	[ `find t1/lib/foo/ -type d -name __pycache__ | wc -l` = "0" ] \
-	|| echo "E: removing python3.2's pyc files failed"
+	|| (echo "E: removing python3.2's pyc files failed"; false)
 fi
 
 exit 0

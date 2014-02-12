@@ -1,5 +1,4 @@
-# -*- coding: UTF-8 -*-
-# Copyright © 2010 Piotr Ożarowski <piotr@debian.org>
+# Copyright © 2010-2012 Piotr Ożarowski <piotr@debian.org>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,61 +28,56 @@ log = logging.getLogger(__name__)
 class DebHelper:
     """Reinvents the wheel / some dh functionality (Perl is ugly ;-P)"""
 
-    def __init__(self, packages=None, no_packages=None):
+    def __init__(self, options):
+        self.options = options
         self.packages = {}
         self.python_version = None
         source_section = True
         binary_package = None
 
+        pkgs = options.package
+        skip_pkgs = options.no_package
+
         try:
             fp = open('debian/control', 'r', encoding='utf-8')
         except IOError:
-            log.error('cannot find debian/control file')
-            exit(15)
+            raise Exception('cannot find debian/control file')
 
         for line in fp:
             if not line.strip():
                 source_section = False
                 binary_package = None
                 continue
+            line_l = line.lower()  # field names are case-insensitive
             if binary_package:
-                if binary_package.startswith('python-') or\
-                   binary_package.startswith('python2'):
+                if binary_package not in self.packages:
                     continue
-                if packages and binary_package not in packages:
-                    continue
-                if no_packages and binary_package in no_packages:
-                    continue
-                if line.startswith('Architecture:'):
+                if line_l.startswith('architecture:'):
                     arch = line[13:].strip()
                     # TODO: if arch doesn't match current architecture:
                     #del self.packages[binary_package]
                     self.packages[binary_package]['arch'] = arch
                     continue
-                elif line.startswith('Breaks:') and '${python3:Breaks}' in line:
-                    self.packages[binary_package]['uses_breaks'] = True
-                    continue
-            elif line.startswith('Package:'):
+            elif line_l.startswith('package:'):
                 binary_package = line[8:].strip()
-                if binary_package.startswith('python-') or\
-                   binary_package.startswith('python2'):
+                if binary_package.startswith(('python-', 'python2')):
                     log.debug('skipping Python 2.X package: %s', binary_package)
                     continue
-                if packages and binary_package not in packages:
+                if pkgs and binary_package not in pkgs:
                     continue
-                if no_packages and binary_package in no_packages:
+                if skip_pkgs and binary_package in skip_pkgs:
                     continue
                 self.packages[binary_package] = {'substvars': {},
                                                  'autoscripts': {},
                                                  'rtupdates': [],
-                                                 'uses_breaks': False}
-            elif line.startswith('Source:'):
+                                                 'arch': 'any'}
+            elif line_l.startswith('source:'):
                 self.source_name = line[7:].strip()
-            elif source_section and line.startswith('X-Python3-Version:'):
+            elif source_section and line_l.startswith('x-python3-version:'):
                 self.python_version = line[18:]
-            elif source_section and line.startswith('XS-Python-Version:')\
-              and not self.python_version:
-                self.python_version = line[18:]
+                if len(self.python_version.split(',')) > 2:
+                    raise ValueError('too many arguments provided for X-Python3-Version: min and max only.')
+        fp.close()
         log.debug('source=%s, binary packages=%s', self.source_name,\
                                                    list(self.packages.keys()))
 
@@ -108,7 +102,8 @@ class DebHelper:
             for when, templates in autoscripts.items():
                 fn = "debian/%s.%s.debhelper" % (package, when)
                 if exists(fn):
-                    data = open(fn, 'r').read()
+                    with open(fn, 'r') as datafile:
+                        data = datafile.read()
                 else:
                     data = ''
 
@@ -120,8 +115,13 @@ class DebHelper:
                                      "autoscripts/%s" % tpl_name)
                         if not exists(fpath):
                             fpath = "/usr/share/debhelper/autoscripts/%s" % tpl_name
-                        tpl = open(fpath, 'r').read()
-                        tpl = tpl.replace('#PACKAGE#', package)
+                        with open(fpath, 'r') as tplfile:
+                            tpl = tplfile.read()
+                        if self.options.compile_all and args:
+                            # TODO: should args be checked to contain dir name?
+                            tpl = tpl.replace('#PACKAGE#', '')
+                        else:
+                            tpl = tpl.replace('#PACKAGE#', package)
                         tpl = tpl.replace('#ARGS#', i)
                         if tpl not in data and tpl not in new_data:
                             new_data += "\n%s" % tpl
@@ -139,7 +139,8 @@ class DebHelper:
                 continue
             fn = "debian/%s.substvars" % package
             if exists(fn):
-                data = open(fn, 'r').read()
+                with open(fn, 'r') as datafile:
+                    data = datafile.read()
             else:
                 data = ''
             for name, values in substvars.items():
@@ -170,6 +171,7 @@ class DebHelper:
 
     def save_rtupdate(self):
         for package, settings in self.packages.items():
+            pkg_arg = '' if self.options.compile_all else "-p %s" % package
             values = settings.get('rtupdates')
             if not values:
                 continue
@@ -180,11 +182,11 @@ class DebHelper:
             if exists(fn):
                 data = open(fn, 'r').read()
             else:
-                data = '#! /bin/sh -e'
+                data = "#! /bin/sh\nset -e"
             for dname, args in values:
                 cmd = 'if [ "$1" = rtupdate ]; then' +\
-                      "\n\tpy3clean %s" % dname +\
-                      "\n\tpy3compile %s %s\nfi" % (args, dname)
+                      "\n\tpy3clean %s %s" % (pkg_arg, dname) +\
+                      "\n\tpy3compile %s %s %s\nfi" % (pkg_arg, args, dname)
                 if cmd not in data:
                     data += "\n%s" % cmd
             if data:

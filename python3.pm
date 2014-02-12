@@ -5,6 +5,6 @@ use warnings;
 use strict;
 use Debian::Debhelper::Dh_Lib;
 
-insert_after("dh_perl", "dh_python3");
+insert_before("dh_installinit", "dh_python3");
 
 1

@@ -1,39 +1,49 @@
 .TH PY3COMPILE "1" "September 2010" "py3compile 0.9" "User Commands"
 .SH NAME
-py3compile \- byte compiles Python 3 source files
+py3compile \- byte compile Python 3 source files
 .SH SYNOPSIS
 .B py3compile
 [\fI-V \fR[\fIX.Y\fR][\fI-\fR][\fIA.B\fR]] \fIDIR_OR_FILE \fR[\fI-X REGEXPR\fR]
+.P
+.B py3compile
+\fB\-p\fR PACKAGE
 .SH DESCRIPTION
-.IP
-py3compile \fB\-p\fR PACKAGE
+Wrapper around
+.B py_compile
+to byte-compile python files.
 .SH OPTIONS
 .TP
 \fB\-\-version\fR
-show program's version number and exit
+Show program's version number and exit.
 .TP
 \fB\-h\fR, \fB\-\-help\fR
-show this help message and exit
+Show this help message and exit.
 .TP
-\fB\-v\fR, \fB\-\-verbose\fR
-turn verbose mode on
+\fB\-f\fR, \fB\-\-force\fR
+Force rebuild of byte-code files even if timestamps are up-to-date.
+.TP
+\fB\-O\fR
+Byte-compile to .pyo files.
 .TP
 \fB\-q\fR, \fB\-\-quiet\fR
-be quiet
+Be quiet.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Turn verbose mode on
 .TP
 \fB\-p\fR PACKAGE, \fB\-\-package\fR=\fIPACKAGE\fR
-specify Debian package name whose files should be
-bytecompiled
+Specify Debian package name whose files should be
+bytecompiled.
 .TP
 \fB\-V\fR VRANGE
-force private modules to be bytecompiled with Python
+Force private modules to be bytecompiled with Python
 version from given range, regardless of the default
 Python version in the system. If there are no other
 options, bytecompile all public modules for installed
 Python versions that match given range.  VERSION_RANGE
 examples: '3.1' (version 3.1 only), '3.1\-' (version
 3.1 or newer), '3.1\-3.3' (version 3.1 or 3.2), '\-4.0'
-(all supported 3.X versions)
+(all supported 3.X versions).
 .TP
 \fB\-X\fR REGEXPR, \fB\-\-exclude\fR=\fIREGEXPR\fR
 exclude items that match given REGEXPR. You may use

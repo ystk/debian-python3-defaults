@@ -20,10 +20,10 @@
 
 import logging
 from debpython.pydist import parse_pydep, guess_dependency
-from debpython.version import vrepr, vrange_str
+from debpython.version import DEFAULT, SUPPORTED, vrepr, vrange_str
 
 # minimum version required for py3compile/py3clean:
-MINPYCDEP = 'python3 (>= 3.1.2-8~)'
+MINPYCDEP = 'python3 (>= 3.2.3-3~)'
 
 log = logging.getLogger(__name__)
 
@@ -31,9 +31,8 @@ log = logging.getLogger(__name__)
 class Dependencies:
     """Store relations (dependencies, etc.) between packages."""
 
-    def __init__(self, package, use_breaks=False):
+    def __init__(self, package):
         self.package = package
-        self.use_breaks = use_breaks
         self.depends = []
         self.recommends = []
         self.suggests = []
@@ -87,6 +86,36 @@ class Dependencies:
 
     def parse(self, stats, options):
         log.debug('generating dependencies for package %s', self.package)
+        dbgpkg = self.package.endswith('-dbg')
+        tpl = 'python3-dbg' if dbgpkg else 'python3'
+        vtpl = 'python%d.%d-dbg' if dbgpkg else 'python%d.%d'
+        vrange = options.vrange
+
+        if vrange and vrange != (None, None):
+            minv = vrange[0]
+            maxv = vrange[1]  # note it's an open interval (i.e. do not add 1 here!)
+            if minv == maxv:
+                self.depend(vtpl % minv)
+                minv = maxv = None
+            if minv:
+                self.depend("%s (>= %d.%d)" %
+                            (tpl, minv[0], minv[1]))
+            if maxv:
+                self.depend("%s (<< %d.%d)" %
+                            (tpl, maxv[0], maxv[1]))
+
+        if stats['ext']:
+            # TODO: what about extensions with stable ABI?
+            sorted_vers = sorted(stats['ext'])
+            minv = sorted_vers[0]
+            maxv = sorted_vers[-1]
+            #self.depend('|'.join(vtpl % i for i in stats['ext']))
+            if minv <= DEFAULT:
+                self.depend("%s (>= %d.%d)" %
+                            (tpl, minv[0], minv[1]))
+            if maxv >= DEFAULT:
+                self.depend("%s (<< %d.%d)" %
+                            (tpl, maxv[0], maxv[1] + 1))
 
         # make sure py3compile binary is available
         if stats['compile']:
@@ -97,27 +126,45 @@ class Dependencies:
 
         for private_dir, details in stats['private_dirs'].items():
             versions = list(v for i, v in details.get('shebangs', []) if v)
-            if len(versions) > 1:
-                log.error('more than one Python dependency from shebangs'
-                          '(%s shebang versions: %s)', private_dir, versions)
-                exit(13)
-            elif len(versions) == 1:  # one hardcoded version
-                self.depend("python%d.%d" % versions[0])
-                # TODO: if versions[0] not in requested_versions: FTBFS
-            elif details.get('compile', False):
-                # no hardcoded versions, but there's something to compile
+
+            for v in versions:
+                if v in SUPPORTED:
+                    self.depend(vtpl % v)
+                else:
+                    log.info('dependency on python%s (from shebang) ignored'
+                             ' - it\'s not supported anymore', vrepr(v))
+            # /usr/bin/python3 shebang → add python3 to Depends
+            if any(True for i, v in details.get('shebangs', []) if v is None):
+                self.depend(tpl)
+
+            if details.get('compile'):
                 self.depend(MINPYCDEP)
                 args = ''
-                vr = options.vrange
-                if vr:
-                    args += "-V %s" % vrange_str(vr)
-                    if vr[0]:  # minimum version specified
-                        self.depend("python3 (>= %s)" % vrepr(vr[0]))
-                    if vr[1]:  # maximum version specified
-                        self.depend("python3 (<< %s)" % vrepr(vr[1]))
+                if details.get('ext'):
+                    extensions = sorted(details['ext'])
+                    #self.depend('|'.join(vtpl % i for i in extensions))
+                    args += "-V %s" % vrange_str((extensions[0], extensions[-1]))
+                    if len(extensions) == 1:
+                        self.depend(vtpl % extensions[0])
+                    else:
+                        self.depend("%s (>= %d.%d)" % (tpl, extensions[0][0],
+                                                       extensions[0][1]))
+                        self.depend("%s (<< %d.%d)" % (tpl,
+                                    extensions[-1][0], extensions[-1][1] + 1))
+                elif vrange and vrange != (None, None):
+                    args += "-V %s" % vrange_str(vrange)
+                    if vrange[0] == vrange[1]:
+                        self.depend("python%d.%d" % vrange[0])
+                    else:
+                        if vrange[0]:  # minimum version specified
+                            self.depend("python3 (>= %s)" % vrepr(vrange[0]))
+                        if vrange[1]:  # maximum version specified
+                            self.depend("python3 (<< %s)" %
+                                        vrepr((vrange[1][0],
+                                               int(vrange[1][1]) + 1)))
 
                 for pattern in options.regexpr or []:
-                    args += " -X '%s'" % pattern.replace("'", r"\'")
+                    args += " -X '%s'" % pattern.replace("'", r"'\''")
                 self.rtscript((private_dir, args))
 
         if options.guess_deps:

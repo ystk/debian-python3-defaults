@@ -1,7 +1,8 @@
 #! /usr/bin/python3
 # vim: et ts=4 sw=4
 
-# Copyright © 2010 Piotr Ożarowski <piotr@debian.org>
+# Copyright © 2010-2012 Piotr Ożarowski <piotr@debian.org>
+# Copyright © 2010 Canonical Ltd
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -23,16 +24,19 @@
 
 import logging
 import optparse
+import os
+import struct
 import sys
-from os import environ, listdir, mkdir, walk
-from os.path import abspath, dirname, exists, isdir, isfile, join
+from os import environ, listdir, mkdir
+from os.path import dirname, exists, isdir, join
 from subprocess import PIPE, Popen
 sys.path.insert(1, '/usr/share/python3/')
 from debpython.version import SUPPORTED, debsorted, vrepr, \
         get_requested_versions, parse_vrange, getver
+from debpython import files as dpf
 from debpython.option import Option, compile_regexpr
 from debpython.pydist import PUBLIC_DIR_RE
-from debpython.tools import memoize
+from debpython.tools import cache_from_source, get_magic_numbers_map, memoize
 
 # initialize script
 logging.basicConfig(format='%(levelname).1s: %(module)s:%(lineno)d: '
@@ -49,55 +53,6 @@ Examples:
     pycompile -V 3.1 /usr/lib/foo/bar.py # python3.1 only
     pycompile -V 3.2- /usr/lib/python3/
 """
-
-
-### FILES ######################################################
-def get_directory_files(dname):
-    """Generate *.py file names available in given directory."""
-    if isfile(dname) and dname.endswith('.py'):
-        yield dname
-    else:
-        for root, dirs, file_names in walk(abspath(dname)):
-            #if root != dname and not exists(join(root, '__init__.py')):
-            #    del dirs[:]
-            #    continue
-            for fn in file_names:
-                if fn.endswith('.py'):
-                    yield join(root, fn)
-
-
-def get_package_files(package_name):
-    """Generate *.py file names available in given package."""
-    process = Popen("/usr/bin/dpkg -L %s" % package_name,\
-                    shell=True, stdout=PIPE)
-    stdout, stderr = process.communicate()
-    if process.returncode != 0:
-        log.error('cannot get content of %s', package_name)
-        exit(2)
-    stdout = str(stdout, 'utf-8')
-    for line in stdout.split('\n'):
-        if line.endswith('.py'):
-            yield line
-
-
-def get_private_files(files, dname):
-    """Generate *.py file names that match given directory."""
-    for fn in files:
-        if fn.startswith(dname):
-            yield fn
-
-
-def get_public_files(files, versions):
-    """Generate *.py file names that match given versions."""
-    vstr = set("%d.%d" % i for i in versions)
-    shared_vstr = set("%d/" % i[0] for i in versions)
-    for fn in files:
-        if not fn.startswith('/usr/lib/python'):
-            continue
-        if fn[15:18] in vstr:  # /usr/lib/pythonX.Y/
-            yield fn
-        elif fn[15:17] in shared_vstr:  # /usr/lib/pythonX/
-            yield fn
 
 
 ### EXCLUDES ###################################################
@@ -126,6 +81,9 @@ def get_exclude_patterns_from_dir(name='/usr/share/python3/bcep/'):
 
 def get_exclude_patterns(directory='/', patterns=None, versions=None):
     """Return patterns for files that shouldn't be compiled in given dir."""
+    if versions is not None:
+        # make sure it's a set (debsorted returns a list)
+        versions = set(versions)
     if patterns:
         if versions is None:
             versions = set(SUPPORTED)
@@ -167,10 +125,11 @@ def filter_files(files, e_patterns, compile_versions):
 
 
 ### COMPILE ####################################################
-def py_compile(version, workers):
+def py_compile(version, optimize, workers):
     if not isinstance(version, str):
         version = vrepr(version)
-    cmd = "python%s -m py_compile -" % version
+    cmd = "/usr/bin/python%s%s -m py_compile -" \
+        % (version, ' -O' if optimize else '')
     process = Popen(cmd, bufsize=1, shell=True,
                     stdin=PIPE, close_fds=True)
     workers[version] = process  # keep the reference for .communicate()
@@ -180,24 +139,43 @@ def py_compile(version, workers):
         stdin.write(filename.encode('utf-8') + b'\n')
 
 
-def compile(files, versions, e_patterns=None):
+def compile(files, versions, force, optimize, e_patterns=None):
     global STDINS, WORKERS
     # start Python interpreters that will handle byte compilation
     for version in versions:
         if version not in STDINS:
-            coroutine = py_compile(version, WORKERS)
+            coroutine = py_compile(version, optimize, WORKERS)
             next(coroutine)
             STDINS[version] = coroutine
 
     # byte compile files
     skip_dirs = set()
+    magic_numbers = get_magic_numbers_map(versions)
     for fn, versions_to_compile in filter_files(files, e_patterns, versions):
         for version in versions_to_compile:
+            cfn = cache_from_source(fn, version, not optimize)
             if version == (3, 1):
-                if exists("%sc" % fn):
-                    continue
+                if exists(cfn) and not force:
+                    ftime = os.stat(fn).st_mtime
+                    try:
+                        ctime = os.stat(cfn).st_mtime
+                    except os.error:
+                        ctime = 0
+                    if ctime > ftime:
+                        continue
             else:
-                pycache_dir = join(dirname(fn), '__pycache__')
+                pycache_dir = dirname(cfn)
+                if not force:
+                    try:
+                        mtime = int(os.stat(fn).st_mtime)
+                        expect = struct.pack('<4sl',
+                                             magic_numbers[version], mtime)
+                        with open(cfn, 'rb') as chandle:
+                            actual = chandle.read(8)
+                        if expect == actual:
+                            continue
+                    except (IOError, OSError):
+                        pass
                 if pycache_dir not in skip_dirs and not exists(pycache_dir):
                     try:
                         mkdir(pycache_dir)
@@ -213,12 +191,16 @@ def compile(files, versions, e_patterns=None):
 def main():
     usage = '%prog [-V [X.Y][-][A.B]] DIR_OR_FILE [-X REGEXPR]\n' + \
      '       %prog -p PACKAGE'
-    parser = optparse.OptionParser(usage, version='%prog 0.9',
+    parser = optparse.OptionParser(usage, version='%prog 1.0',
                                    option_class=Option)
     parser.add_option('-v', '--verbose', action='store_true', dest='verbose',
         help='turn verbose mode on')
     parser.add_option('-q', '--quiet', action='store_false', dest='verbose',
         default=False, help='be quiet')
+    parser.add_option('-f', '--force', action='store_true', dest='force',
+        default=False, help='force rebuild even if timestamps are up-to-date')
+    parser.add_option('-O', action='store_true', dest='optimize',
+        default=False, help="byte-compile to .pyo files")
     parser.add_option('-p', '--package',
         help='specify Debian package name whose files should be bytecompiled')
     parser.add_option('-V', type='version_range', dest='vrange',
@@ -265,7 +247,7 @@ multiple times to build up a list of things to exclude.')
         compile_versions = debsorted(versions)[:1]
         log.debug('compile versions: %s', versions)
 
-        pkg_files = tuple(get_package_files(options.package))
+        pkg_files = tuple(dpf.from_package(options.package))
         for item in args:
             e_patterns = get_exclude_patterns(item, options.regexpr, \
                                               compile_versions)
@@ -274,27 +256,34 @@ multiple times to build up a list of things to exclude.')
             else:
                 log.debug('byte compiling %s using Python %s',
                           item, compile_versions)
-                files = get_private_files(pkg_files, item)
-                compile(files, compile_versions, e_patterns)
+                files = dpf.filter_directory(pkg_files, item)
+                compile(files, compile_versions, options.force,
+                        options.optimize, e_patterns)
     elif options.package:  # package's public modules
         # no need to limit versions here, it's either pyr mode or version is
         # hardcoded in path / via -V option
         e_patterns = get_exclude_patterns()
-        files = get_package_files(options.package)
-        files = get_public_files(files, versions)
-        compile(files, versions, e_patterns)
-    elif args:  # other directories/files (public ones mostly)
+        files = dpf.from_package(options.package)
+        files = dpf.filter_public(files, versions)
+        compile(files, versions,
+                options.force, options.optimize, e_patterns)
+    elif args:  # other directories/files
         for item in args:
             e_patterns = get_exclude_patterns(item, options.regexpr, versions)
-            files = get_directory_files(item)
-            compile(files, versions, e_patterns)
+            files = dpf.from_directory(item)
+            compile(files, versions,
+                    options.force, options.optimize, e_patterns)
     else:
         parser.print_usage()
         exit(1)
 
     # wait for all processes to finish
+    rv = 0
     for process in WORKERS.values():
         process.communicate()
+        if process.returncode not in (None, 0):
+            rv = process.returncode
+    exit(rv)
 
 if __name__ == '__main__':
     main()

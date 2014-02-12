@@ -1,5 +1,5 @@
 # -*- coding: UTF-8 -*-
-# Copyright © 2010 Piotr Ożarowski <piotr@debian.org>
+# Copyright © 2010-2012 Piotr Ożarowski <piotr@debian.org>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -35,7 +35,7 @@ def parse_version_range(option, opt, value):
 def compile_regexpr(option, opt, value):
     try:
         pattern = re.compile(value)
-    except:
+    except Exception:
         raise optparse.OptionValueError('regular expression is not valid')
     return pattern
 

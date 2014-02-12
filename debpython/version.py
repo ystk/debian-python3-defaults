@@ -1,5 +1,5 @@
 # -*- coding: UTF-8 -*-
-# Copyright © 2010 Piotr Ożarowski <piotr@debian.org>
+# Copyright © 2010-2012 Piotr Ożarowski <piotr@debian.org>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -19,14 +19,44 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+import logging
 import re
-from os.path import exists
+from os import environ
+from os.path import exists, join, dirname
+from configparser import ConfigParser
 from types import GeneratorType
 
-SUPPORTED = [(3, 1)]
-DEFAULT = (3, 1)
+# TODO: class Version; Version.next
+
+# will be overriden via debian_defaults file few lines later
+SUPPORTED = [(3, 2)]
+DEFAULT = (3, 2)
 RANGE_PATTERN = r'(-)?(\d\.\d+)(?:(-)(\d\.\d+)?)?'
 RANGE_RE = re.compile(RANGE_PATTERN)
+
+log = logging.getLogger(__name__)
+
+# try to read debian_defaults and get a list of supported Python versions and
+# the default one from there
+_supported = environ.get('DEBPYTHON3_SUPPORTED')
+_default = environ.get('DEBPYTHON3_DEFAULT')
+if not _supported or not _default:
+    _config = ConfigParser()
+    _config.read('/usr/share/python3/debian_defaults')
+    if not _default:
+        _default = _config.get('DEFAULT', 'default-version')[6:]
+    if not _supported:
+        _supported = _config.get('DEFAULT', 'supported-versions')\
+                     .replace('python', '')
+try:
+    DEFAULT = tuple(int(i) for i in _default.split('.'))
+except Exception:
+    log.exception('cannot read debian_defaults')
+try:
+    SUPPORTED = tuple(tuple(int(j) for j in i.strip().split('.'))
+                            for i in _supported.split(','))
+except Exception:
+    log.exception('cannot read debian_defaults')
 
 
 def get_requested_versions(vrange=None, available=None):
@@ -38,13 +68,13 @@ def get_requested_versions(vrange=None, available=None):
     :type available: bool
 
     >>> sorted(get_requested_versions([(3, 0), None]))
-    [(3, 1)]
+    [(3, 2)]
     >>> sorted(get_requested_versions('')) == sorted(SUPPORTED)
     True
     >>> sorted(get_requested_versions([None, None])) == sorted(SUPPORTED)
     True
-    >>> get_requested_versions([(5, 0), None])
-    set()
+    >>> get_requested_versions([(5, 0), None]) == set()
+    True
     """
     if isinstance(vrange, str):
         vrange = parse_vrange(vrange)
@@ -60,10 +90,10 @@ def get_requested_versions(vrange=None, available=None):
             versions = set(v for v in SUPPORTED if minv <= v < maxv)
 
     if available:
-        versions = set(v for v in versions \
+        versions = set(v for v in versions
                        if exists("/usr/bin/python%d.%d" % v))
     elif available is False:
-        versions = set(v for v in versions \
+        versions = set(v for v in versions
                        if not exists("/usr/bin/python%d.%d" % v))
 
     return versions
@@ -114,7 +144,7 @@ def parse_vrange(value):
 
 
 def parse_pycentral_vrange(value):
-    """Parse XS-Python-Version.
+    """Parse X-Python3-Version.
 
     >>> parse_pycentral_vrange('>= 3.1')
     ((3, 1), None)
@@ -237,7 +267,7 @@ def debsorted(versions, return_str=None):
     :param vrepr: return string represenatations of versions, by default the
         same format is used as in :param:`versions`
 
-    >>> debsorted([(2, 6), (3, 1), (2, 5), (2, 4), (2, 7)])[0] == DEFAULT
+    >>> debsorted([(2, 6), (3, 1), (3, 2), (3, 3), (2, 7)])[0] == DEFAULT
     True
     >>> debsorted(('2.4', '3.2', '2.6', '2.7'))[-1]
     (2, 4)

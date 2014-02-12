@@ -6,6 +6,7 @@ clean:
 	make -C tests clean
 	make -C pydist clean
 	find . -name '*.py[co]' -delete
+	find . -name __pycache__ -type d | xargs rm -rf
 	rm -f .coverage
 
 install-dev:
@@ -29,8 +30,12 @@ install: install-dev install-runtime
 dist_fallback:
 	make -C pydist $@
 
+pdebuild:
+	pdebuild --debbuildopts -I
+
+# TESTS
 nose:
-	nosetests --with-doctest --with-coverage
+	nosetests3 --with-doctest --with-coverage
 
 tests: nose
 	make -C tests

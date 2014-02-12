@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=IDLE 3
 Comment=Integrated DeveLopment Environment for Python3
-Exec=/usr/bin/idle3 -n
+Exec=/usr/bin/idle3
 Icon=/usr/share/pixmaps/idle3.xpm
 Terminal=false
 Type=Application

@@ -5,12 +5,15 @@ import os, re, sys
 _defaults = None
 def read_default(name=None):
     global _defaults
-    from configparser import SafeConfigParser, NoOptionError
+    from configparser import ConfigParser, NoOptionError
     if not _defaults:
         if os.path.exists('/usr/share/python3/debian_defaults'):
-            config = SafeConfigParser()
-            config.readfp(open('/usr/share/python3/debian_defaults'))
+            config = ConfigParser()
+            defaultsfile = open('/usr/share/python3/debian_defaults')
+            config.read_file(defaultsfile)
+            defaultsfile.close()
             _defaults = config
+            
     if _defaults and name:
         try:
             value = _defaults.get('DEFAULT', name)
@@ -20,6 +23,8 @@ def read_default(name=None):
     return None
 
 def parse_versions(vstring):
+    if len(vstring.split(',')) > 2:
+        raise ValueError('too many arguments provided for X-Python3-Version: min and max only.')
     import operator
     operators = { None: operator.eq, '=': operator.eq,
                   '>=': operator.ge, '<=': operator.le,
@@ -40,7 +45,7 @@ def parse_versions(vstring):
         m = ve.match(field)
         try:
             if not m:
-                raise ValueError('error parsing Python-Version attribute')
+                raise ValueError('error parsing Python3-Version attribute')
             op, v = m.group(1), m.group(2)
             vmaj, vmin = v.split('.')
             if int(vmaj) < 3:
@@ -52,7 +57,7 @@ def parse_versions(vstring):
                 filtop = operators[op]
                 version_range = [av for av in version_range if filtop(av ,v)]
         except Exception:
-            raise ValueError('error parsing Python-Version attribute')
+            raise ValueError('error parsing Python3-Version attribute')
     if 'versions' in vinfo:
         vinfo['versions'] = exact_versions
         if relop_seen:
@@ -87,7 +92,9 @@ def unsupported_versions(version_only=False):
     else:
         return _unsupported_versions
 
-_supported_versions = None
+_supported_versions = ["python%s" % ver.strip() for ver in
+                       os.environ.get('DEBPYTHON3_SUPPORTED', '').split(',')
+                       if ver.strip()]
 def supported_versions(version_only=False):
     global _supported_versions
     if not _supported_versions:
@@ -116,6 +123,9 @@ def supported_versions(version_only=False):
     else:
         return _supported_versions
 
+#_default_version = "python%s" % os.environ.get('DEBPYTHON3_DEFAULT', '')
+#if _default_version == 'python':
+#    _default_version = None
 _default_version = None
 def default_version(version_only=False):
     global _default_version
@@ -170,8 +180,9 @@ def extract_pyversion_attribute(fn, pkg):
     version = None
     sversion = None
     section = None
-    for line in open(fn, encoding='utf-8'):
-        line = line.strip()
+    with open(fn, encoding='utf-8') as controlfile:
+        lines = [line.strip() for line in controlfile]
+    for line in lines:
         if line == '':
             if pkg == 'Source':
                 break
@@ -180,7 +191,7 @@ def extract_pyversion_attribute(fn, pkg):
             section = 'Source'
         elif line.startswith('Package: ' + pkg):
             section = pkg
-        elif line.startswith('X-Python3-Version:'):
+        elif line.lower().startswith('x-python3-version:'):
             if section != 'Source':
                 raise ValueError('attribute X-Python3-Version not in Source section')
             sversion = line.split(':', 1)[1].strip()
@@ -218,10 +229,6 @@ def requested_versions_bis(vstring, version_only=False):
     if not version_only:
         versions=['python'+i for i in versions]
     return versions
-
-def extract_pyversion_attribute_bis(fn):
-    vstring = open(fn).readline().rstrip('\n')
-    return vstring
 
 def main():
     from optparse import OptionParser
@@ -271,7 +278,7 @@ def main():
                                      % (program, fn))
                     sys.exit(1)
                 except MissingVersionValueError:
-                    sys.stderr.write("%s: missing X-Python3-Version in control file, fall back to supported versions\n" \
+                    sys.stderr.write("%s: no X-Python3-Version in control file, using supported versions\n" \
                                          % program)
                     vs = supported_versions(opts.version_only)
             else:
