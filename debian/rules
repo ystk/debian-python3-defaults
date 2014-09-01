@@ -6,21 +6,28 @@ export SHELL = /bin/bash
 # Uncomment this to turn on verbose mode.
 #export DH_VERBOSE=1
 
-DEB_HOST_ARCH := $(shell dpkg-architecture -qDEB_HOST_ARCH)
+include /usr/share/dpkg/architecture.mk
 
 changelog_values := $(shell dpkg-parsechangelog \
 			| awk '/^(Version|Source):/ {print $$2}')
 PKGSOURCE  := $(word 1, $(changelog_values))
 PKGVERSION := $(word 2, $(changelog_values))
+UPSTRVER   := $(shell echo $(PKGVERSION) | sed -rne 's,(.*)-.*,\1,p')
+IPKGVER    := $(shell echo $(PKGVERSION) | sed -rne 's,(.*)\+.*,\1,p')
+VER        := $(shell echo $(PKGVERSION) | sed -rne 's,(.{3}).*,\1,p')
+NVER       := $(shell echo $(VER) | awk 'BEGIN{FS="." }{print $$1 "." $$2 + 1}') 
+
 
 distribution := $(shell lsb_release -is)
 
-export VER=3.2
-export NVER=3.3
-export PVER=python3.2
+ifeq ($(distribution),Ubuntu)
+  # first Ubuntu version with Multi-Arch: allowed
+  UPSTRVER   := 3.4.1-1~
+else
+  # first Debian version with Multi-Arch: allowed
+  UPSTRVER   := 3.4.1-1~
+endif
 
-PREVVER	:= $(shell awk '/^python/ && NR > 1 {print substr($$2,2,length($$2)-2); exit}' debian/changelog)
-PREVVER := 3.2.3
 
 PWD		:= $(shell pwd)
 
@@ -52,14 +59,13 @@ stamp-doc-policy:
 	touch stamp-doc-policy
 
 stamp-doc: #stamp-doc-policy
-	make -C pydist README.PyDist.html
 	touch stamp-doc
 
 control-file:
-	sed -e "s/@PVER@/$(PVER)/g" \
+	sed -e "s/@UPSTRVER@/$(UPSTRVER)/g" \
+	    -e "s/@IPKGVER@/$(IPKGVER)/g" \
 	    -e "s/@NVER@/$(NVER)/g" \
 	    -e "s/@VER@/$(VER)/g" \
-	    -e "s/@PREVVER@/$(PREVVER)/g" \
 		<debian/control.in >debian/control.tmp
 ifeq ($(distribution),Ubuntu)
   ifneq (,$(findstring ubuntu, $(PKGVERSION)))
@@ -101,7 +107,7 @@ clean: control-file
 
 	set -e;\
 	for f in debian/*.in; do \
-	    f2=`echo $$f | sed "s,PVER,$(PVER),g;s/VER/$(VER)/g;s,\.in$$,,"`; \
+	    f2=`echo $$f | sed "s,PVER,python$(VER),g;s/VER/$(VER)/g;s,\.in$$,,"`; \
 	    if [ $$f2 != debian/control ]; then \
 	        rm -f $$f2; \
 	    fi; \
@@ -115,9 +121,9 @@ stamp-control:
 
 	set -e;\
 	for f in debian/*.in; do \
-	    f2=`echo $$f | sed "s,PVER,$(PVER),g;s/VER/$(VER)/g;s,\.in$$,,"`; \
+	    f2=`echo $$f | sed "s,PVER,python$(VER),g;s/VER/$(VER)/g;s,\.in$$,,"`; \
 	    if [ $$f2 != debian/control ]; then \
-		sed -e "s/@PVER@/$(PVER)/g;s/@VER@/$(VER)/g" \
+		sed -e "s/@PVER@/python$(VER)/g;s/@VER@/$(VER)/g" \
 		    -e "s/@PRIORITY@/$(PRIORITY)/g" \
 		    -e "s,@SCRIPTDIR@,/$(scriptdir),g" \
 		  <$$f >$$f2; \
@@ -154,7 +160,7 @@ stamp-dh_python:
 	dh_installdirs
 	#make check_versions
 	DESTDIR=debian/python3 PREFIX=/usr make install-dev
-	DESTDIR=debian/python3 PREFIX=/usr make install-runtime
+	DESTDIR=debian/python3-minimal PREFIX=/usr make install-runtime manpages
 	# disabled by default, run manually if you want to update it
 	# (requires apt-file and network connection)
 	#make dist_fallback
@@ -166,15 +172,62 @@ binary-indep: build install stamp-doc
 	dh_testroot -i
 	dh_installman -i
 
+ifeq ($(with_doc),yes)
+	mkdir -p debian/python3-doc/usr/share/doc/python3
+	ln -sf ../python$(VER)-doc/html \
+		debian/python3-doc/usr/share/doc/python3/html
+	mkdir -p debian/python3-doc/usr/share/doc/python3-doc
+	ln -sf ../python$(VER)-doc/html \
+		debian/python3-doc/usr/share/doc/python3-doc/html
+endif
+
+	: # provide the idle and idle.1 defaults
+	mkdir -p debian/idle3/usr/bin
+	install -m 755 debian/idle.py debian/idle3/usr/bin/idle3
+
+	mkdir -p debian/idle3/usr/share/man/man1
+	install -m 644 debian/idle.1 debian/idle3/usr/share/man/man1/idle3.1
+
+	mkdir -p debian/idle3/usr/share/pixmaps
+	ln -sf python3.xpm debian/idle3/usr/share/pixmaps/idle3.xpm
+
+	mkdir -p debian/idle3/usr/share/applications
+	cp -p debian/idle3.desktop debian/idle3/usr/share/applications/
+
+#	dh_installdebconf -i $(NOPKGS)
+	dh_lintian -i
+	dh_installdocs -i $(NOPKGS) --all debian/README.Debian
+	dh_installmenu -i $(NOPKGS)
+	dh_installchangelogs -i $(NOPKGS)
+
+	for p in examples idle3; do \
+	  [ $$p = idle3 ] || p=python3-$$p; \
+	  rm -rf debian/$$p/usr/share/doc/$$p; \
+	  ln -sf python3 debian/$$p/usr/share/doc/$$p; \
+	done
+
+	dh_compress -i $(NOPKGS)
+	dh_fixperms -i $(NOPKGS)
+	dh_installdeb -i $(NOPKGS)
+	dh_gencontrol -i $(NOPKGS)
+	dh_md5sums -i $(NOPKGS)
+	dh_builddeb -i $(NOPKGS)
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir -a
+	dh_testroot -a
+	dh_installman -a
+
 	: # provide the python and python.1 defaults
 	mkdir -p debian/python3-minimal/usr/bin
 	ln -sf python$(VER) debian/python3-minimal/usr/bin/python3
-	ln -sf python$(VER)mu debian/python3-minimal/usr/bin/python3mu
+	ln -sf python$(VER)m debian/python3-minimal/usr/bin/python3m
 	mkdir -p debian/python3-minimal/usr/share/man/man1
 	ln -sf python$(VER).1.gz \
 		debian/python3-minimal/usr/share/man/man1/python3.1.gz
-	ln -sf python$(VER)mu.1.gz \
-		debian/python3-minimal/usr/share/man/man1/python3mu.1.gz
+	ln -sf python$(VER)m.1.gz \
+		debian/python3-minimal/usr/share/man/man1/python3m.1.gz
 
 	: # 
 	mkdir -p debian/python3-minimal/usr/share/python3
@@ -225,15 +278,6 @@ ifeq (0,1)
 	done
 endif
 
-ifeq ($(with_doc),yes)
-	mkdir -p debian/python3-doc/usr/share/doc/python3
-	ln -sf ../python$(VER)-doc/html \
-		debian/python3-doc/usr/share/doc/python3/html
-	mkdir -p debian/python3-doc/usr/share/doc/python3-doc
-	ln -sf ../python$(VER)-doc/html \
-		debian/python3-doc/usr/share/doc/python3-doc/html
-endif
-
 ifeq (0,1)
 	mkdir -p debian/python3/usr/share/apps/konsole
 	cp -p debian/python.desktop debian/python3/usr/share/apps/konsole/
@@ -241,31 +285,41 @@ endif
 
 	: # provide the python3-config default
 	mkdir -p debian/python3-dev/usr/bin
-	ln -sf python$(VER)mu-config debian/python3-dev/usr/bin/python3mu-config
+	ln -sf python$(VER)m-config debian/python3-dev/usr/bin/python3m-config
 	mkdir -p debian/python3-dev/usr/share/man/man1
-	ln -sf python$(VER)mu-config.1.gz \
-		debian/python3-dev/usr/share/man/man1/python3mu-config.1.gz
+	ln -sf python$(VER)m-config.1.gz \
+		debian/python3-dev/usr/share/man/man1/python3m-config.1.gz
 	ln -sf python$(VER)-config debian/python3-dev/usr/bin/python3-config
 	ln -sf python$(VER)-config.1.gz \
 		debian/python3-dev/usr/share/man/man1/python3-config.1.gz
 
 	: # provide pkgconfig defaults
-	mkdir -p debian/python3-dev/usr/lib/pkgconfig
-	ln -sf python-$(VER).pc debian/python3-dev/usr/lib/pkgconfig/python3.pc
-	mkdir -p debian/python3-dbg/usr/lib/pkgconfig
-	ln -sf python-$(VER)-dbg.pc debian/python3-dbg/usr/lib/pkgconfig/python3-dbg.pc
+	mkdir -p debian/python3-dev/usr/lib/$(DEB_HOST_MULTIARCH)/pkgconfig
+	ln -sf python-$(VER).pc debian/python3-dev/usr/lib/$(DEB_HOST_MULTIARCH)/pkgconfig/python3.pc
+	mkdir -p debian/python3-dbg/usr/lib/$(DEB_HOST_MULTIARCH)/pkgconfig
+	ln -sf python-$(VER)-dbg.pc debian/python3-dbg/usr/lib/$(DEB_HOST_MULTIARCH)/pkgconfig/python3-dbg.pc
+
+ifeq (0,1)
+	: # provide pyconfig.h in the non-multiarch location.
+	mkdir -p debian/python3-dev/usr/include/python$(VER)m
+	ln -sf ../$(DEB_HOST_MULTIARCH)/python$(VER)m/pyconfig.h \
+		debian/python3-dev/usr/include/python$(VER)m/pyconfig.h
+	mkdir -p debian/python3-dbg/usr/include/python$(VER)dm
+	ln -sf ../$(DEB_HOST_MULTIARCH)/python$(VER)dm/pyconfig.h \
+		debian/python3-dbg/usr/include/python$(VER)dm/pyconfig.h
+endif
 
 	: # provide the python-dbg and python-dbg.1 defaults
 	mkdir -p debian/python3-dbg/usr/bin
-	ln -sf python$(VER)dmu debian/python3-dbg/usr/bin/python3dmu
-	ln -sf python$(VER)dmu-config debian/python3-dbg/usr/bin/python3dmu-config
+	ln -sf python$(VER)dm debian/python3-dbg/usr/bin/python3dm
+	ln -sf python$(VER)dm-config debian/python3-dbg/usr/bin/python3dm-config
 	ln -sf python$(VER)-dbg debian/python3-dbg/usr/bin/python3-dbg
 	ln -sf python$(VER)-dbg-config debian/python3-dbg/usr/bin/python3-dbg-config
 	mkdir -p debian/python3-dbg/usr/share/man/man1
-	ln -sf python$(VER)dmu.1.gz \
-		debian/python3-dbg/usr/share/man/man1/python3dmu.1.gz
-	ln -sf python$(VER)dmu-config.1.gz \
-		debian/python3-dbg/usr/share/man/man1/python3dmu-config.1.gz
+	ln -sf python$(VER)dm.1.gz \
+		debian/python3-dbg/usr/share/man/man1/python3dm.1.gz
+	ln -sf python$(VER)dm-config.1.gz \
+		debian/python3-dbg/usr/share/man/man1/python3dm-config.1.gz
 	ln -sf python$(VER)-dbg.1.gz \
 		debian/python3-dbg/usr/share/man/man1/python3-dbg.1.gz
 	ln -sf python$(VER)-dbg-config.1.gz \
@@ -280,41 +334,77 @@ endif
 	cp -p debian/valgrind-python.supp \
 		debian/python3/usr/lib/valgrind/python3.supp
 
-	: # provide the idle and idle.1 defaults
-	mkdir -p debian/idle3/usr/bin
-	install -m 755 debian/idle.py debian/idle3/usr/bin/idle3
+	: # provide the DEB_HOST_GNU_TYPE/DEB_HOST_MULTIRACH python-config defaults
+	mkdir -p debian/libpython3-dev/usr/bin
+	ln -sf $(DEB_HOST_MULTIARCH)-python$(VER)m-config \
+		debian/libpython3-dev/usr/bin/$(DEB_HOST_MULTIARCH)-python3m-config
+	ln -sf $(DEB_HOST_MULTIARCH)-python$(VER)-config \
+		debian/libpython3-dev/usr/bin/$(DEB_HOST_MULTIARCH)-python3-config
+	mkdir -p debian/libpython3-dev/usr/share/man/man1
+	ln -sf $(DEB_HOST_MULTIARCH)-python$(VER)m-config.1.gz \
+		debian/libpython3-dev/usr/share/man/man1/$(DEB_HOST_MULTIARCH)-python3m-config.1.gz
+	ln -sf $(DEB_HOST_MULTIARCH)-python$(VER)-config.1.gz \
+		debian/libpython3-dev/usr/share/man/man1/$(DEB_HOST_MULTIARCH)-python3-config.1.gz
+ifneq ($(DEB_HOST_MULTIARCH),$(DEB_HOST_GNU_TYPE))
+	ln -sf $(DEB_HOST_GNU_TYPE)-python$(VER)m-config \
+		debian/libpython3-dev/usr/bin/$(DEB_HOST_GNU_TYPE)-python3m-config
+	ln -sf $(DEB_HOST_GNU_TYPE)-python$(VER)-config \
+		debian/libpython3-dev/usr/bin/$(DEB_HOST_GNU_TYPE)-python3-config
+	ln -sf $(DEB_HOST_GNU_TYPE)-python$(VER)m-config.1.gz \
+		debian/libpython3-dev/usr/share/man/man1/$(DEB_HOST_GNU_TYPE)-python3m-config.1.gz
+	ln -sf $(DEB_HOST_GNU_TYPE)-python$(VER)-config.1.gz \
+		debian/libpython3-dev/usr/share/man/man1/$(DEB_HOST_GNU_TYPE)-python3-config.1.gz
+endif
 
-	mkdir -p debian/idle3/usr/share/man/man1
-	install -m 644 debian/idle.1 debian/idle3/usr/share/man/man1/idle3.1
+	mkdir -p debian/libpython3-dbg/usr/bin
+	ln -sf $(DEB_HOST_MULTIARCH)-python$(VER)dm-config \
+		debian/libpython3-dbg/usr/bin/$(DEB_HOST_MULTIARCH)-python3dm-config
+	ln -sf $(DEB_HOST_MULTIARCH)-python$(VER)-dbg-config \
+		debian/libpython3-dbg/usr/bin/$(DEB_HOST_MULTIARCH)-python3-dbg-config
+	mkdir -p debian/libpython3-dbg/usr/share/man/man1
+	ln -sf $(DEB_HOST_MULTIARCH)-python$(VER)dm-config.1.gz \
+		debian/libpython3-dbg/usr/share/man/man1/$(DEB_HOST_MULTIARCH)-python3dm-config.1.gz
+	ln -sf $(DEB_HOST_MULTIARCH)-python$(VER)-dbg-config.1.gz \
+		debian/libpython3-dbg/usr/share/man/man1/$(DEB_HOST_MULTIARCH)-python3-dbg-config.1.gz
+ifneq ($(DEB_HOST_MULTIARCH),$(DEB_HOST_GNU_TYPE))
+	ln -sf $(DEB_HOST_GNU_TYPE)-python$(VER)dm-config \
+		debian/libpython3-dbg/usr/bin/$(DEB_HOST_GNU_TYPE)-python3dm-config
+	ln -sf $(DEB_HOST_GNU_TYPE)-python$(VER)-dbg-config \
+		debian/libpython3-dbg/usr/bin/$(DEB_HOST_GNU_TYPE)-python3-dbg-config
+	ln -sf $(DEB_HOST_GNU_TYPE)-python$(VER)dm-config.1.gz \
+		debian/libpython3-dbg/usr/share/man/man1/$(DEB_HOST_GNU_TYPE)-python3dm-config.1.gz
+	ln -sf $(DEB_HOST_GNU_TYPE)-python$(VER)-dbg-config.1.gz \
+		debian/libpython3-dbg/usr/share/man/man1/$(DEB_HOST_GNU_TYPE)-python3-dbg-config.1.gz
+endif
 
-	mkdir -p debian/idle3/usr/share/pixmaps
-	ln -sf python3.xpm debian/idle3/usr/share/pixmaps/idle3.xpm
+	: # provide the pyvenv and pyvenv.1 defaults
+	mkdir -p debian/python3-venv/usr/bin
+	ln -sf pyvenv-$(VER) debian/python3-venv/usr/bin/pyvenv
+	mkdir -p debian/python3-venv/usr/share/man/man1
+	ln -sf pyvenv-$(VER).1.gz \
+		debian/python3-venv/usr/share/man/man1/pyvenv.1.gz
 
-	mkdir -p debian/idle3/usr/share/applications
-	cp -p debian/idle3.desktop debian/idle3/usr/share/applications/
+	dh_lintian -a
+	dh_installdocs -a $(NOPKGS) --all debian/README.Debian
+	dh_installmenu -a $(NOPKGS)
+	dh_installchangelogs -a $(NOPKGS)
 
-#	dh_installdebconf -i $(NOPKGS)
-	dh_lintian -i
-	dh_installdocs -i $(NOPKGS) --all debian/README.Debian
-	dh_installmenu -i $(NOPKGS)
-	dh_installchangelogs -i $(NOPKGS)
-
-	for p in all all-dev all-dbg dbg dev examples idle3; do \
+	for p in all all-dev all-dbg dbg dev venv; do \
 	  [ $$p = idle3 ] || p=python3-$$p; \
 	  rm -rf debian/$$p/usr/share/doc/$$p; \
 	  ln -sf python3 debian/$$p/usr/share/doc/$$p; \
 	done
+	rm -rf debian/libpython3-all-dev/usr/share/doc/libpython3-all-dev
+	ln -sf libpython3-dev debian/libpython3-all-dev/usr/share/doc/libpython3-all-dev
+	rm -rf debian/libpython3-all-dbg/usr/share/doc/libpython3-all-dbg
+	ln -sf libpython3-dbg debian/libpython3-all-dbg/usr/share/doc/libpython3-all-dbg
 
-	dh_compress -i $(NOPKGS)
-	dh_fixperms -i $(NOPKGS)
-	dh_installdeb -i $(NOPKGS)
-	dh_gencontrol -i $(NOPKGS)
-	dh_md5sums -i $(NOPKGS)
-	dh_builddeb -i $(NOPKGS)
-
-# Build architecture-dependent files here.
-binary-arch: build install
-# nothing to do
+	dh_compress -a $(NOPKGS)
+	dh_fixperms -a $(NOPKGS)
+	dh_installdeb -a $(NOPKGS)
+	dh_gencontrol -a $(NOPKGS)
+	dh_md5sums -a $(NOPKGS)
+	dh_builddeb -a $(NOPKGS)
 
 binary: binary-indep binary-arch
 

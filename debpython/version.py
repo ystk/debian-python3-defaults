@@ -22,17 +22,21 @@
 import logging
 import re
 from os import environ
-from os.path import exists, join, dirname
+from os.path import exists
 from configparser import ConfigParser
 from types import GeneratorType
 
-# TODO: class Version; Version.next
-
 # will be overriden via debian_defaults file few lines later
-SUPPORTED = [(3, 2)]
-DEFAULT = (3, 2)
+SUPPORTED = [(3, 4),]
+DEFAULT = (3, 4)
 RANGE_PATTERN = r'(-)?(\d\.\d+)(?:(-)(\d\.\d+)?)?'
 RANGE_RE = re.compile(RANGE_PATTERN)
+VERSION_RE = re.compile(r'''
+    (?P<major>\d+)\.?
+    (?P<minor>\d+)?\.?
+    (?P<micro>\d+)?[.\s]?
+    (?P<releaselevel>alpha|beta|candidate|final)?[.\s]?
+    (?P<serial>\d+)?''', re.VERBOSE)
 
 log = logging.getLogger(__name__)
 
@@ -47,16 +51,181 @@ if not _supported or not _default:
         _default = _config.get('DEFAULT', 'default-version')[6:]
     if not _supported:
         _supported = _config.get('DEFAULT', 'supported-versions')\
-                     .replace('python', '')
+            .replace('python', '')
 try:
     DEFAULT = tuple(int(i) for i in _default.split('.'))
 except Exception:
     log.exception('cannot read debian_defaults')
 try:
     SUPPORTED = tuple(tuple(int(j) for j in i.strip().split('.'))
-                            for i in _supported.split(','))
+                      for i in _supported.split(','))
 except Exception:
     log.exception('cannot read debian_defaults')
+
+
+class Version:
+    def __init__(self, value=None, major=None, minor=None, micro=None,
+                 releaselevel=None, serial=None):
+        if isinstance(value, (tuple, list)):
+            value = '.'.join(str(i) for i in value)
+        if isinstance(value, Version):
+            for name in ('major', 'minor', 'micro', 'releaselevel', 'serial'):
+                setattr(self, name, getattr(value, name))
+            return
+        comp = locals()
+        del comp['self']
+        del comp['value']
+        if value:
+            match = VERSION_RE.match(value)
+            for name, value in match.groupdict().items() if match else []:
+                if value is not None and comp[name] is None:
+                    comp[name] = value
+        for name, value in comp.items():
+            if name != 'releaselevel' and value is not None:
+                value = int(value)
+            setattr(self, name, value)
+        if not self.major:
+            raise ValueError('major component is required')
+
+    def __str__(self):
+        """Return major.minor or major string.
+
+        >>> str(Version(major=3, minor=2, micro=1, releaselevel='final', serial=4))
+        '3.2'
+        >>> str(Version(major=2))
+        '2'
+        """
+        result = str(self.major)
+        if self.minor is not None:
+            result += '.{}'.format(self.minor)
+        return result
+
+    def __hash__(self):
+        return hash(repr(self))
+
+    def __repr__(self):
+        """Return full version string.
+
+        >>> repr(Version(major=3, minor=2, micro=1, releaselevel='final', serial=4))
+        "Version('3.2.1.final.4')"
+        >>> repr(Version(major=2))
+        "Version('2')"
+        """
+        result = "Version('{}".format(self)
+        for name in ('micro', 'releaselevel', 'serial'):
+            value = getattr(self, name)
+            if not value:
+                break
+            result += '.{}'.format(value)
+        return result + "')"
+
+    def __add__(self, other):
+        """Return next version.
+
+        >>> Version('3.1') + 1
+        Version('3.2')
+        >>> Version('2') + '1'
+        Version('3')
+        """
+        result = Version(self)
+        if self.minor is None:
+            result.major += int(other)
+        else:
+            result.minor += int(other)
+        return result
+
+    def __sub__(self, other):
+        """Return previous version.
+
+        >>> Version('3.1') - 1
+        Version('3.0')
+        >>> Version('3') - '1'
+        Version('2')
+        """
+        result = Version(self)
+        if self.minor is None:
+            result.major -= int(other)
+            new = result.major
+        else:
+            result.minor -= int(other)
+            new = result.minor
+        if new < 0:
+            raise ValueError('cannot decrease version further')
+        return result
+
+    def __eq__(self, other):
+        return self.__cmp(other) == 0
+
+    def __lt__(self, other):
+        return self.__cmp(other) < 0
+
+    def __le__(self, other):
+        return self.__cmp(other) <= 0
+
+    def __gt__(self, other):
+        return self.__cmp(other) > 0
+
+    def __ge__(self, other):
+        return self.__cmp(other) >= 0
+
+    def __lshift__(self, other):
+        """Compare major.minor or major only (if minor is not set).
+
+        >>> Version('2.6') << Version('2.7')
+        True
+        >>> Version('2.6') << Version('2.6.6')
+        False
+        >>> Version('3') << Version('2')
+        False
+        >>> Version('3.1') << Version('2')
+        False
+        >>> Version('2') << Version('3.2.1.alpha.3')
+        True
+        """
+        if not isinstance(other, Version):
+            other = Version(other)
+        if self.minor is None or other.minor is None:
+            return self.__cmp(other, ignore='minor') < 0
+        else:
+            return self.__cmp(other, ignore='micro') < 0
+
+    def __rshift__(self, other):
+        """Compare major.minor or major only (if minor is not set).
+
+        >>> Version('2.6') >> Version('2.7')
+        False
+        >>> Version('2.6.7') >> Version('2.6.6')
+        False
+        >>> Version('3') >> Version('2')
+        True
+        >>> Version('3.1') >> Version('2')
+        True
+        >>> Version('2.1') >> Version('3.2.1.alpha.3')
+        False
+        """
+        if not isinstance(other, Version):
+            other = Version(other)
+        if self.minor is None or other.minor is None:
+            return self.__cmp(other, ignore='minor') > 0
+        else:
+            return self.__cmp(other, ignore='micro') > 0
+
+    def __cmp(self, other, ignore=None):
+        if not isinstance(other, Version):
+            other = Version(other)
+        for name in ('major', 'minor', 'micro', 'releaselevel', 'serial'):
+            if name == ignore:
+                break
+            value1 = getattr(self, name) or 0
+            value2 = getattr(other, name) or 0
+            if name == 'releaselevel':
+                rmap = {'alpha': -3, 'beta': -2, 'candidate': -1, 'final': 0}
+                value1 = rmap.get(value1, 0)
+                value2 = rmap.get(value2, 0)
+            if value1 == value2:
+                continue
+            return (value1 > value2) - (value1 < value2)
+        return 0
 
 
 def get_requested_versions(vrange=None, available=None):
@@ -68,7 +237,7 @@ def get_requested_versions(vrange=None, available=None):
     :type available: bool
 
     >>> sorted(get_requested_versions([(3, 0), None]))
-    [(3, 2)]
+    [(3, 2), (3, 3)]
     >>> sorted(get_requested_versions('')) == sorted(SUPPORTED)
     True
     >>> sorted(get_requested_versions([None, None])) == sorted(SUPPORTED)
@@ -155,7 +324,7 @@ def parse_pycentral_vrange(value):
     >>> parse_pycentral_vrange('3.1, 3.2')
     ((3, 1), None)
     """
-    get = lambda x: get_requested_versions(parse_vrange(x))
+    #get = lambda x: get_requested_versions(parse_vrange(x))
 
     minv = maxv = None
     hardcoded = set()
@@ -183,8 +352,7 @@ def parse_pycentral_vrange(value):
         # yeah, no maxv!
         minv = sorted(hardcoded)[0]
 
-    return getver(minv) if minv else None, \
-           getver(maxv) if maxv else None
+    return getver(minv) if minv else None, getver(maxv) if maxv else None
 
 
 def vrange_str(vrange):
@@ -229,8 +397,7 @@ def vrepr(value):
     """
     if isinstance(value, str):
         return value
-    elif not isinstance(value, (GeneratorType, set))\
-      and isinstance(value[0], int):
+    elif not isinstance(value, (GeneratorType, set)) and isinstance(value[0], int):
         return '.'.join(str(i) for i in value)
 
     result = []
@@ -249,11 +416,15 @@ def getver(value):
     (3, 2)
     >>> getver('3.1.4')
     (3, 1)
+    >>> getver((3, 3, 1))
+    (3, 3)
     >>> getver(None)
     ''
     """
     if not value:
         return ''
+    if isinstance(value, tuple):
+        return value[:2]
     return tuple(int(i) for i in value.split('.', 2))[:2]
 
 

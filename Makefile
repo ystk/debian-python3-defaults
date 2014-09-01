@@ -1,47 +1,40 @@
 #!/usr/bin/make -f
 INSTALL ?= install
 PREFIX ?= /usr/local
+MANPAGES ?= py3compile.1 py3clean.1
+VERSION=$(shell dpkg-parsechangelog | sed -rne 's,^Version: (.+),\1,p')
 
 clean:
-	make -C tests clean
-	make -C pydist clean
 	find . -name '*.py[co]' -delete
 	find . -name __pycache__ -type d | xargs rm -rf
-	rm -f .coverage
+	rm -f .coverage $(MANPAGES)
 
 install-dev:
 	$(INSTALL) -m 755 -d $(DESTDIR)$(PREFIX)/bin \
-		$(DESTDIR)$(PREFIX)/share/python3/runtime.d \
-		$(DESTDIR)$(PREFIX)/share/debhelper/autoscripts/ \
-		$(DESTDIR)$(PREFIX)/share/perl5/Debian/Debhelper/Sequence/
+		$(DESTDIR)$(PREFIX)/share/python3/runtime.d
 	$(INSTALL) -m 755 runtime.d/* $(DESTDIR)$(PREFIX)/share/python3/runtime.d/
-	$(INSTALL) -m 644 autoscripts/* $(DESTDIR)$(PREFIX)/share/debhelper/autoscripts/
-	$(INSTALL) -m 755 dh_python3 $(DESTDIR)$(PREFIX)/bin/
-	$(INSTALL) -m 644 python3.pm $(DESTDIR)$(PREFIX)/share/perl5/Debian/Debhelper/Sequence/
 
 install-runtime:
 	$(INSTALL) -m 755 -d $(DESTDIR)$(PREFIX)/share/python3/debpython $(DESTDIR)$(PREFIX)/bin
 	$(INSTALL) -m 644 debpython/*.py $(DESTDIR)$(PREFIX)/share/python3/debpython/
 	$(INSTALL) -m 755 py3compile $(DESTDIR)$(PREFIX)/bin/
+	sed -i -e 's/DEVELV/$(VERSION)/' $(DESTDIR)$(PREFIX)/bin/py3compile
 	$(INSTALL) -m 755 py3clean $(DESTDIR)$(PREFIX)/bin/
+	sed -i -e 's/DEVELV/$(VERSION)/' $(DESTDIR)$(PREFIX)/bin/py3clean
 
 install: install-dev install-runtime
 
-dist_fallback:
-	make -C pydist $@
+%.1: %.rst
+	rst2man $< > $@
+
+manpages: $(MANPAGES)
 
 pdebuild:
 	pdebuild --debbuildopts -I
 
 # TESTS
-nose:
+tests:
 	nosetests3 --with-doctest --with-coverage
-
-tests: nose
-	make -C tests
-
-test%:
-	make -C tests $@
 
 check_versions:
 	@PYTHONPATH=. set -e; \

@@ -1,8 +1,21 @@
 #! /usr/bin/python3
 
-import os, re, sys
+import os
+import re
+import sys
 
 _defaults = None
+_old_versions = None
+_unsupported_versions = None
+_supported_versions = ["python%s" % ver.strip() for ver in
+                       os.environ.get('DEBPYTHON3_SUPPORTED', '').split(',')
+                       if ver.strip()]
+#_default_version = "python%s" % os.environ.get('DEBPYTHON3_DEFAULT', '')
+#if _default_version == 'python':
+#    _default_version = None
+_default_version = None
+
+
 def read_default(name=None):
     global _defaults
     from configparser import ConfigParser, NoOptionError
@@ -13,7 +26,7 @@ def read_default(name=None):
             config.read_file(defaultsfile)
             defaultsfile.close()
             _defaults = config
-            
+
     if _defaults and name:
         try:
             value = _defaults.get('DEFAULT', name)
@@ -22,14 +35,14 @@ def read_default(name=None):
         return value
     return None
 
+
 def parse_versions(vstring):
     if len(vstring.split(',')) > 2:
         raise ValueError('too many arguments provided for X-Python3-Version: min and max only.')
     import operator
-    operators = { None: operator.eq, '=': operator.eq,
-                  '>=': operator.ge, '<=': operator.le,
-                  '<<': operator.lt
-                  }
+    operators = {None: operator.eq, '=': operator.eq,
+                 '>=': operator.ge, '<=': operator.le,
+                 '<<': operator.lt}
     vinfo = {}
     exact_versions = set()
     version_range = set(supported_versions(version_only=True))
@@ -55,7 +68,7 @@ def parse_versions(vstring):
             else:
                 relop_seen = True
                 filtop = operators[op]
-                version_range = [av for av in version_range if filtop(av ,v)]
+                version_range = [av for av in version_range if filtop(av, v)]
         except Exception:
             raise ValueError('error parsing Python3-Version attribute')
     if 'versions' in vinfo:
@@ -64,7 +77,7 @@ def parse_versions(vstring):
             vinfo['versions'] = exact_versions.union(version_range)
     return vinfo
 
-_old_versions = None
+
 def old_versions(version_only=False):
     global _old_versions
     if not _old_versions:
@@ -78,7 +91,7 @@ def old_versions(version_only=False):
     else:
         return _old_versions
 
-_unsupported_versions = None
+
 def unsupported_versions(version_only=False):
     global _unsupported_versions
     if not _unsupported_versions:
@@ -92,9 +105,7 @@ def unsupported_versions(version_only=False):
     else:
         return _unsupported_versions
 
-_supported_versions = ["python%s" % ver.strip() for ver in
-                       os.environ.get('DEBPYTHON3_SUPPORTED', '').split(',')
-                       if ver.strip()]
+
 def supported_versions(version_only=False):
     global _supported_versions
     if not _supported_versions:
@@ -123,23 +134,23 @@ def supported_versions(version_only=False):
     else:
         return _supported_versions
 
-#_default_version = "python%s" % os.environ.get('DEBPYTHON3_DEFAULT', '')
-#if _default_version == 'python':
-#    _default_version = None
-_default_version = None
+
 def default_version(version_only=False):
     global _default_version
     if not _default_version:
-        _default_version = link = os.readlink('/usr/bin/python3')
+        _default_version = os.readlink('/usr/bin/python3')
     # consistency check
     debian_default = read_default('default-version')
     if not _default_version in (debian_default, os.path.join('/usr/bin', debian_default)):
-        raise ValueError("the symlink /usr/bin/python3 does not point to the python3 default version. It must be reset to point to %s" % debian_default)
+        raise ValueError("the symlink /usr/bin/python3 does not point to the "
+                         "python3 default version. It must be reset "
+                         "to point to %s" % debian_default)
     _default_version = debian_default
     if version_only:
         return _default_version[6:]
     else:
         return _default_version
+
 
 def requested_versions(vstring, version_only=False):
     versions = None
@@ -156,6 +167,7 @@ def requested_versions(vstring, version_only=False):
     else:
         return ['python%s' % v for v in versions]
 
+
 def installed_versions(version_only=False):
     import glob
     supported = supported_versions()
@@ -168,10 +180,14 @@ def installed_versions(version_only=False):
     else:
         return versions
 
+
 class ControlFileValueError(ValueError):
     pass
+
+
 class MissingVersionValueError(ValueError):
     pass
+
 
 def extract_pyversion_attribute(fn, pkg):
     """read the debian/control file, extract the X-Python3-Version
@@ -183,7 +199,7 @@ def extract_pyversion_attribute(fn, pkg):
     with open(fn, encoding='utf-8') as controlfile:
         lines = [line.strip() for line in controlfile]
     for line in lines:
-        if line == '':
+        if line == '' and section != None:
             if pkg == 'Source':
                 break
             section = None
@@ -195,14 +211,16 @@ def extract_pyversion_attribute(fn, pkg):
             if section != 'Source':
                 raise ValueError('attribute X-Python3-Version not in Source section')
             sversion = line.split(':', 1)[1].strip()
-    if section == None:
+    if section is None:
         raise ControlFileValueError('not a control file')
     if pkg == 'Source':
-        if sversion == None:
-            raise MissingVersionValueError('missing X-Python3-Version in control file')
+        if sversion is None:
+            raise MissingVersionValueError('no X-Python3-Version in control file')
         return sversion
     return version
 
+
+'''
 def requested_versions_bis(vstring, version_only=False):
     versions = []
     py_supported_short = supported_versions(version_only=True)
@@ -229,10 +247,13 @@ def requested_versions_bis(vstring, version_only=False):
     if not version_only:
         versions=['python'+i for i in versions]
     return versions
+'''
+
 
 def main():
     from optparse import OptionParser
-    usage = '[-v] [-h] [-d|--default] [-s|--supported] [-i|--installed] [-r|--requested <version string>|<control file>]'
+    usage = '[-v] [-h] [-d|--default] [-s|--supported] [-i|--installed] '
+    '[-r|--requested <version string>|<control file>]'
     parser = OptionParser(usage=usage)
     parser.add_option('-d', '--default',
                       help='print the default python3 version',
@@ -241,7 +262,9 @@ def main():
                       help='print the supported python3 versions',
                       action='store_true', dest='supported')
     parser.add_option('-r', '--requested',
-                      help='print the python3 versions requested by a build; the argument is either the name of a control file or the value of the X-Python3-Version attribute',
+                      help='print the python3 versions requested by a build; '
+                           'the argument is either the name of a control file '
+                           'or the value of the X-Python3-Version attribute',
                       action='store_true', dest='requested')
     parser.add_option('-i', '--installed',
                       help='print the installed supported python3 versions',
@@ -274,12 +297,13 @@ def main():
                     vstring = extract_pyversion_attribute(fn, 'Source')
                     vs = requested_versions(vstring, opts.version_only)
                 except ControlFileValueError:
-                    sys.stderr.write("%s: not a control file: %s, " \
+                    sys.stderr.write("%s: not a control file: %s, "
                                      % (program, fn))
                     sys.exit(1)
                 except MissingVersionValueError:
-                    sys.stderr.write("%s: no X-Python3-Version in control file, using supported versions\n" \
-                                         % program)
+                    sys.stderr.write("%s: no X-Python3-Version in control "
+                                     "file, using supported versions\n" %
+                                     program)
                     vs = supported_versions(opts.version_only)
             else:
                 vs = requested_versions(versions, opts.version_only)

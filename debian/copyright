@@ -296,9 +296,9 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
 OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 
-dh_python3, py3compile, py3clean and debpython module:
-======================================================
-Copyright © 2010 Piotr Ożarowski <piotr@debian.org>
+py3compile, py3clean and debpython module:
+==========================================
+Copyright © 2010-2013 Piotr Ożarowski <piotr@debian.org>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

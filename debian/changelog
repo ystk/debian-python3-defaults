@@ -1,3 +1,261 @@
+python3-defaults (3.4.1-1) unstable; urgency=medium
+
+  * Bump version to 3.4.1.
+  * Drop python3.3 as a supported python version.
+  * Build a python3-venv binary package.
+  * Fix lintian warnings.
+  * py3versions: Ignore blank lines before the source section in the control
+    file. Closes: #739935.
+
+ -- Matthias Klose <doko@debian.org>  Wed, 04 Jun 2014 12:39:42 +0200
+
+python3-defaults (3.4.1~rc1-1) unstable; urgency=medium
+
+  * Upload to unstable
+  * Bump version to 3.4.1~rc1
+
+ -- Scott Kitterman <scott@kitterman.com>  Tue, 27 May 2014 22:49:41 -0400
+
+python3-defaults (3.4~rc1-1) experimental; urgency=medium
+
+  * Default to python3.4.
+
+ -- Matthias Klose <doko@debian.org>  Wed, 12 Feb 2014 13:03:28 +0100
+
+python3-defaults (3.3.4-1) unstable; urgency=medium
+
+  * Bump version to 3.3.4.
+
+ -- Matthias Klose <doko@debian.org>  Wed, 12 Feb 2014 11:15:40 +0100
+
+python3-defaults (3.3.3-1) experimental; urgency=low
+
+  * Add python3.4 as a supported python version.
+
+ -- Matthias Klose <doko@debian.org>  Thu, 26 Dec 2013 00:39:55 +0100
+
+python3-defaults (3.3.2-17) unstable; urgency=low
+
+  * Add Multi-Arch: allowed for python3-all-dev.
+
+ -- Matthias Klose <doko@debian.org>  Wed, 18 Sep 2013 15:46:08 +0200
+
+python3-defaults (3.3.2-16) unstable; urgency=low
+
+  * Restore :any relationship for python3-minimal build-dep now that it is
+    supported on the buildds
+
+ -- Scott Kitterman <scott@kitterman.com>  Sat, 07 Sep 2013 17:11:07 -0400
+
+python3-defaults (3.3.2-15) unstable; urgency=low
+
+  * Drop non-existing :any from python3-minimal build-dep.
+
+ -- Scott Kitterman <scott@kitterman.com>  Sun, 18 Aug 2013 11:38:29 -0400
+
+python3-defaults (3.3.2-14) unstable; urgency=low
+
+  * Add python3.1 and python3.2 to unsupported-versions
+  * Build-depend on python3-minimal:any instead of python since that's what's
+    used during the build now
+  * Build-depend on python3-docutils instead of python-docutils
+  * Add Multi-Arch: allowed for python3-all and python3-all-dbg
+  * Add libpython3-dbg to python3-dbg depends
+  * Add libpython3-dev to python3-dev depends
+  * Use generated depends in control.in for libpython3-stdlib as with other
+    binaries
+  * Set UPSTRVER for Ubuntu in debian/rules so correct results are produced in
+    both Debian and Ubuntu
+
+ -- Scott Kitterman <scott@kitterman.com>  Sun, 18 Aug 2013 06:22:22 -0400
+
+python3-defaults (3.3.2-13) unstable; urgency=low
+
+  * Bump python3-minimal Breaks/Replaces python3 versions to 3.3.2-13~ to
+    account for files moved in -4 and later (Closes: #718734)
+  * Fix broken libpython3-all-dbg symlink
+
+ -- Scott Kitterman <scott@kitterman.com>  Mon, 05 Aug 2013 02:25:13 -0400
+
+python3-defaults (3.3.2-12) unstable; urgency=low
+
+  * Re-upload with a version newer than the one in experimental.
+  * Build libpython3-all-{dev,dbg} and libpython3-stdlib packages.
+  * Move debiandoc-sgml and lsb-release from Build-Depends-Indep to
+    Build-Depends.
+
+ -- Matthias Klose <doko@debian.org>  Sat, 03 Aug 2013 09:52:26 +0200
+
+python3-defaults (3.3.2-5) unstable; urgency=low
+
+  * Drop python3.2 from supported python3 versions
+
+ -- Scott Kitterman <scott@kitterman.com>  Fri, 02 Aug 2013 22:58:22 -0400
+
+python3-defaults (3.3.2-4) unstable; urgency=low
+
+  * Upload to unstable
+  * Remove /usr/share/python3/debpython/__pycache__ in python3-minimal's prerm
+  * Change source format back to 1.0 (native)
+
+ -- Piotr Ożarowski <piotr@debian.org>  Thu, 01 Aug 2013 21:41:34 +0200
+
+python3-defaults (3.3.2-11) experimental; urgency=low
+
+  * Make datetime module optional in debpython (it's not available in
+    python3.X-minimal, closes: #717232)
+
+ -- Piotr Ożarowski <piotr@debian.org>  Thu, 18 Jul 2013 22:50:17 +0200
+
+python3-defaults (3.3.2-10) experimental; urgency=low
+
+  [ Matthias Klose ]
+  * Move py3compile and py3clean back to the python3-minimal package.
+
+  [ Piotr Ożarowski ]
+  * Remove pybuild and dh_python3, dh-python source package provides it now
+  * Add dh-python dependency in python3 package (to make sure dh_python3 is
+    installed)
+  * Bump Standards-Version to 3.9.4
+
+ -- Piotr Ożarowski <piotr@debian.org>  Mon, 15 Jul 2013 23:48:04 +0200
+
+python3-defaults (3.3.2-3) unstable; urgency=low
+
+  * Bump python3-minimal Breaks/Replaces python3 versions to 3.3.2-1~ to
+    account for files moved in -2 (closes: #717373)
+
+ -- Scott Kitterman <scott@kitterman.com>  Sun, 21 Jul 2013 09:30:39 -0400
+
+python3-defaults (3.3.2-2) unstable; urgency=low
+
+  [ Matthias Klose ]
+  * Build dependency packages as architecture dependent packages.
+  * Make python3, python3-{minimal,dev,dbg} Multi-Arch: allowed.
+  * Don't use the `u' abi flag when defaulting to 3.3.
+  * Build Multi-Arch: same packages libpython3-{dev,dbg} packages providing
+    $(DEB_HOST_MULTIARCH)-python3-config symlinks.
+
+  [ Piotr Ożarowski ]
+  * Move python-docutils to Build-Depends (python3 package is now arch:any)
+
+  [ Dmitry Shachnev ]
+  * Include architecture.mk in debian/rules instead of defining
+    DEB_HOST_* manually.
+
+  [ Scott Kitterman ]
+  * Correct doc directory in README.Debian
+  * Bump standards version to 3.9.4 without further change
+
+ -- Scott Kitterman <scott@kitterman.com>  Wed, 17 Jul 2013 17:14:22 -0400
+
+python3-defaults (3.3.2-1) unstable; urgency=low
+
+  [ Scott Kitterman ]
+  * Make python3.3 the default python3
+  * When X-Python3-Version is not present, do not describe it as missing,
+    just indicate it is not there
+
+  [ Matthias Klose ]
+  * Bump version to 3.3.2.
+  * Don't use the `u' abi flag when defaulting to 3.3.
+
+ -- Scott Kitterman <scott@kitterman.com>  Sun, 14 Jul 2013 18:35:33 -0400
+
+python3-defaults (3.3.0-3) experimental; urgency=low
+
+  [ Piotr Ożarowski ]
+  * pybuild:
+    - add --ext-dest-dir (PYBUILD_EXT_DESTDIR) and --ext-pattern
+      (PYBUILD_EXT_PATTERN) options to move files after install step
+    - save before/after command logs if quiet mode is on
+    - do not warn about limiting versions if there's only one
+    - distutils plugin: do not skip build in install target
+      (ugly workaround for yet another distutils "feature",
+      closes: #701137)
+    - do not run tests if DEB_BUILD_OPTIONS contains "nocheck"
+  * dh_python3:
+    - add version range to py3compile in maintainer scripts
+    - no longer sensitive to trailing slash in private dir names
+      (closes: #701215)
+  * Bump minimum required dpkg-dev build dependency to 1.16.1~
+    (due to architecture.mk in debian/rules)
+
+  [ Dmitry Shachnev ]
+  * Include architecture.mk in debian/rules instead of defining
+    DEB_HOST_* manually.
+  * tests/t1: Build-depend on python3-all instead of python-all.
+  * Make tests work without python-support installed.
+  * debian/tests/control: Add a dependency on libjs-jquery (test1 contains
+    a symlink to /usr/share/javascript/jquery/jquery.js).
+  * Added missing docinfo to man pages, to fix a lintian warning
+    (Closes: #702777).
+
+  [ Matthias Klose ]
+  * dh_python3: Use the multiarch tuple for the host (if DEB_HOST_MULTIARCH
+    is set in the environment).
+  * Add a libpython3-stdlib package (not yet built).
+
+ -- Piotr Ożarowski <piotr@debian.org>  Sun, 17 Mar 2013 13:47:29 +0100
+
+python3-defaults (3.3.0-2) experimental; urgency=low
+
+  [ Piotr Ożarowski ]
+  * dh_python3:
+    - add multiarch support (rename extensions in dist-packages)
+    - rename foomodule.so to foo.so in dist-packages (for Python >= 3.3)
+  * pybuild:
+    - add --{before,after}-{clean,configure,build,install,test}
+      command line options and many more PYBUILD_FOO environment vars
+      (f.e. PYBUILD_DESTDIR, PYBUILD_DESTDIR_python3,
+      PYBUILD_DESTDIR_python3.3-dbg)
+    - add --disable command line option (to disable step, interpreter, version
+      or any mix of them); drop --no-clean and --no-tests arguments
+      (replaced by --disable clean, --disable test or --disable 'clean test')
+    - add new build system to dh sequencer (dh --buildsystem=pybuild)
+    - add manpage
+  * Move python-docutils to Build-Depends (python3 package is now arch:any) 
+
+  [ Matthias Klose ]
+  * Build dependency packages as architecture dependent packages.
+  * Make python3, python3-{minimal,dev,dbg} Multi-Arch: allowed.
+  * Don't use the `u' abi flag when defaulting to 3.3.
+  * Build Multi-Arch: same packages libpython3-{dev,dbg} packages providing
+    $(DEB_HOST_MULTIARCH)-python3-config symlinks.
+  * Add Multi-Arch: same packages libpython3-all-{dev,dbg} (not yet built,
+    python3.2 doesn't have support for multiarch).
+
+  [ Dmitry Shachnev ]
+  * debpython/interpreter.py: fix failing doctest
+    (architecture no longer hardcoded)
+  * Added DEP-8 tests (Closes: #698002).
+
+ -- Piotr Ożarowski <piotr@debian.org>  Sat, 12 Jan 2013 17:13:14 +0100
+
+python3-defaults (3.3.0-1) experimental; urgency=low
+
+  [ Piotr Ożarowski ]
+  * Add Python 3.3 to the list of supported Python 3 versions and make it a
+    default one.
+  * dh_python3:
+    - remove egg-info file/dir while moving files to common directory
+      if the later one already contains it
+  * rewrite dh_python3.1, py3compile.1 and py3clean.1 manpages in
+    ReStructured Text
+  * Add pybuild
+
+  [ Scott Kitterman ]
+  * Update Makefile to install pybuild
+  * Fix file name typo in README.derivatives
+
+ -- Scott Kitterman <scott@kitterman.com>  Mon, 26 Nov 2012 09:20:46 -0500
+
+python3-defaults (3.2.3-7) unstable; urgency=low
+
+  * Add Python 3.3 as a supported Python version.
+
+ -- Matthias Klose <doko@debian.org>  Mon, 06 May 2013 03:05:02 +0200
+
 python3-defaults (3.2.3-6) unstable; urgency=low
 
   [ Piotr Ożarowski ]

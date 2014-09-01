@@ -30,8 +30,8 @@ from os import environ, remove, rmdir
 from os.path import dirname, basename, exists, join, splitext
 sys.path.insert(1, '/usr/share/python3/')
 from debpython import files as dpf
+from debpython.interpreter import Interpreter
 from debpython.version import SUPPORTED, getver, vrepr
-from debpython.tools import get_magic_tags_map
 
 
 # initialize script
@@ -51,10 +51,19 @@ Examples:
 
 def get_magic_tag_to_remove(version):
     """Returns magic tag or True if all of them should be removed."""
-    map_ = get_magic_tags_map(set(SUPPORTED).union(set([version])))
-    if version != (3, 1) and version not in map_:
-        log.error('magic tag for %s not recognized', vrepr(version))
-        exit(4)
+    i = Interpreter('python')
+    map_ = {}
+    for v in SUPPORTED:
+        try:
+            map_[v] = i.magic_tag(v)
+        except Exception:
+            log.debug('magic tag for %s not recognized', vrepr(v), exc_info=True)
+    if version not in map_:
+        try:
+            map_[version] = i.magic_tag(version)
+        except Exception as e:
+            log.error('cannot find magic tag for Python %s: %s', vrepr(version), e)
+            exit(4)
 
     tag = map_[version]
     # skip shared tags
@@ -63,7 +72,7 @@ def get_magic_tag_to_remove(version):
             continue
         if t == tag:
             log.info('magic tag(s) used by python%s. Nothing to remove.',
-                    vrepr(v))
+                     vrepr(v))
             exit(0)
 
     log.debug('magic tags to remove: %s', tag)
@@ -98,14 +107,14 @@ def destroyer(magic_tag=None):  # ;-)
     elif magic_tag is False:
 
         # remove 3.1's .pyc files only
-        def find_files_to_remove(pyfile):
+        def find_files_to_remove(pyfile):  # NOQA
             for filename in ("%sc" % pyfile, "%so" % pyfile):
                 if exists(filename):
                     yield filename
     else:
 
         # remove .pyc files for no longer needed magic tags
-        def find_files_to_remove(pyfile):
+        def find_files_to_remove(pyfile):  # NOQA
             directory = join(dirname(pyfile), '__pycache__')
             fname = splitext(basename(pyfile))[0]
             for fn in glob1(directory, "%s.%s.py[co]" % (fname, magic_tag)):
@@ -138,15 +147,15 @@ def destroyer(magic_tag=None):  # ;-)
 
 def main():
     usage = '%prog [-V VERSION] [-p PACKAGE] [DIR_OR_FILE]'
-    parser = optparse.OptionParser(usage, version='%prog 1.0')
+    parser = optparse.OptionParser(usage, version='%prog DEVELV')
     parser.add_option('-v', '--verbose', action='store_true', dest='verbose',
-        help='turn verbose more one')
+                      help='turn verbose mode on')
     parser.add_option('-q', '--quiet', action='store_false', dest='verbose',
-        default=False, help='be quiet')
+                      default=False, help='be quiet')
     parser.add_option('-p', '--package',
-        help='specify Debian package name to clean')
+                      help='specify Debian package name to clean')
     parser.add_option('-V', dest='version',
-        help='specify Python version to clean')
+                      help='specify Python version to clean')
 
     (options, args) = parser.parse_args()
 
