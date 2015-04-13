@@ -3,10 +3,13 @@ Section: python
 Priority: optional
 Maintainer: Matthias Klose <doko@debian.org>
 Uploaders: Piotr Ożarowski <piotr@debian.org>, Scott Kitterman <scott@kitterman.com>
-Build-Depends: debhelper (>= 7.0.50~), python3-minimal:any, python3.4-minimal:any, python3-docutils,
- dpkg-dev (>= 1.16.1~), debiandoc-sgml, lsb-release
-Build-Depends-Indep: libhtml-tree-perl
-Standards-Version: 3.9.5
+Build-Depends: debhelper (>= 7.0.50~), @bd_i586@
+  lsb-release,
+  python3-minimal:any,
+  python3.4-minimal:any,
+  python3-docutils,
+  debiandoc-sgml
+Standards-Version: 3.9.6
 Homepage: http://www.python.org/
 Vcs-Bzr: http://alioth.debian.org/anonscm/bzr/pkg-python/python3-defaults-debian
 Vcs-Browser: http://alioth.debian.org/scm/loggerhead/pkg-python/python3-defaults-debian/files

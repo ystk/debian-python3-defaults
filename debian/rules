@@ -18,16 +18,17 @@ VER        := $(shell echo $(PKGVERSION) | sed -rne 's,(.{3}).*,\1,p')
 NVER       := $(shell echo $(VER) | awk 'BEGIN{FS="." }{print $$1 "." $$2 + 1}') 
 
 
-distribution := $(shell lsb_release -is)
+distribution := $(shell dpkg-vendor --query Vendor)
+distrelease  := $(shell lsb_release -cs)
 
-ifeq ($(distribution),Ubuntu)
-  # first Ubuntu version with Multi-Arch: allowed
-  UPSTRVER   := 3.4.1-1~
+# requiered python3.x version
+UPSTRVER   := 3.4.2-0
+
+ifeq (,$(filter $(distrelease),lenny etch squeeze wheezy lucid maverick natty oneiric precise quantal raring saucy trusty))
+  bd_i586 = dpkg-dev (>= 1.17.11), python3.4 (>= 3.4.2-0),
 else
-  # first Debian version with Multi-Arch: allowed
-  UPSTRVER   := 3.4.1-1~
+  bd_i586 = dpkg-dev (>= 1.16.1~),
 endif
-
 
 PWD		:= $(shell pwd)
 
@@ -66,6 +67,7 @@ control-file:
 	    -e "s/@IPKGVER@/$(IPKGVER)/g" \
 	    -e "s/@NVER@/$(NVER)/g" \
 	    -e "s/@VER@/$(VER)/g" \
+	    -e "s/@bd_i586@/$(bd_i586)/g" \
 		<debian/control.in >debian/control.tmp
 ifeq ($(distribution),Ubuntu)
   ifneq (,$(findstring ubuntu, $(PKGVERSION)))
